@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>طباعة الإيصال</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; background:#f4f6f9; margin:0; padding:16px; color:#1c2b3a; }
+  .card { background:#fff; border:1px solid #dde3ea; border-radius:12px; padding:16px; margin-bottom:12px; }
+  h1 { font-size:17px; margin:0 0 10px; color:#0f2c4c; }
+  .row { display:flex; justify-content:space-between; padding:4px 0; font-size:14px; }
+  .big { width:100%; padding:16px; border:none; border-radius:10px; background:#c8a24a; color:#1c2b3a;
+         font-size:18px; font-weight:700; font-family:inherit; cursor:pointer; }
+  .big:disabled { opacity:.6; }
+  .sec { width:100%; padding:11px; border:none; border-radius:8px; background:#0f2c4c; color:#fff;
+         font-size:14px; font-weight:600; font-family:inherit; cursor:pointer; margin-top:8px; }
+  .sec.gray { background:#6b7c8f; }
+  #status { margin-top:12px; padding:12px; border-radius:8px; background:#eef2f7; font-size:15px; font-weight:600; min-height:44px; }
+  #status.ok { background:#eafaf1; color:#1e8449; }
+  #status.err { background:#fdecea; color:#c0392b; }
+  input { width:100%; padding:10px; border:1px solid #dde3ea; border-radius:6px; font-size:16px; margin-top:6px; }
+  small { color:#6b7c8f; }
+  details { margin-top:10px; font-size:13px; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>🖨 طباعة الإيصال</h1>
+  <div id="summary"></div>
+  <div id="status">جاهز. اضغط الزرار تحت.</div>
+</div>
+
+<button class="big" id="goBtn" onclick="run()">🖨 اتصال وطباعة</button>
+<button class="sec gray" id="altBtn" style="display:none" onclick="altChannel()">قناة بديلة ثم اطبع تاني</button>
+<button class="sec" onclick="closeMe()">↩ رجوع للنظام</button>
+
+<details>
+  <summary>إعدادات متقدمة</summary>
+  <div style="margin-top:8px">
+    <label>Service UUID إضافي (اختياري)</label>
+    <input id="extraSvc" placeholder="مثال: 0000ff00-0000-1000-8000-00805f9b34fb" dir="ltr">
+    <label style="margin-top:8px; display:block"><input type="checkbox" id="allDev" style="width:auto"> اعرض كل أجهزة البلوتوث (لو الطابعة مش ظاهرة)</label>
+  </div>
+</details>
+
+<script>
+const PAPER_DOTS = 576;      // 80 مم. لو ورق 58 مم خليها 384
+const NAME_PREFIX = 'XP';
+const STRIP_ROWS = 128;
+const FONT = 'Tahoma, "Geeza Pro", Arial, sans-serif';
+const SERVICES = [
+  0x18f0, 0xff00, 0xff12, 0xffe0, 0xffe5, 0xfff0, 0xae30, 0xfee7,
+  '000018f0-0000-1000-8000-00805f9b34fb',
+  'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+  '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+];
+
+let R = null, device = null, chars = [], idx = 0, chunk = 100;
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function st(t, cls) { const e = $('status'); e.textContent = t; e.className = cls || ''; }
+function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} }
+function withTimeout(p, ms, label) {
+  return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('انتهى الوقت في مرحلة: ' + label)), ms))]);
+}
+function closeMe() { try { window.close(); } catch (e) {} setTimeout(() => { if (history.length > 1) history.back(); }, 300); }
+
+// ---------- قراءة بيانات الإيصال من اللينك ----------
+(function init() {
+  try {
+    const m = location.hash.match(/d=([^&]+)/);
+    if (!m) throw new Error('مفيش بيانات إيصال في اللينك');
+    let b = m[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b.length % 4) b += '=';
+    const bin = atob(b), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    R = JSON.parse(new TextDecoder().decode(bytes));
+    const isCol = R.type === 'collection';
+    $('summary').innerHTML =
+      '<div class="row"><span>' + (isCol ? 'فاتورة تحصيل' : 'فاتورة مبيعات') + '</span><b>#' + R.number + '</b></div>' +
+      '<div class="row"><span>العميل</span><b>' + esc(R.customer) + '</b></div>' +
+      '<div class="row"><span>' + (isCol ? 'المحصّل' : 'الصافي') + '</span><b>' + R.net + ' ج</b></div>';
+  } catch (e) {
+    st('اللينك مش سليم: ' + e.message + ' — ارجع للنظام واضغط طباعة تاني.', 'err');
+    $('goBtn').disabled = true;
+  }
+  const saved = ls('tima_svc'); if (saved) $('extraSvc').value = saved;
+})();
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- البلوتوث ----------
+function score(c) {
+  const u = (c.service && c.service.uuid) || '';
+  if (u.indexOf('000018f0') === 0) return 0;
+  if (u.indexOf('e7810a71') === 0) return 1;
+  if (u.indexOf('49535343') === 0) return 2;
+  return 3;
+}
+function ready() { return !!(device && device.gatt && device.gatt.connected && chars.length); }
+
+async function openGatt() {
+  try {
+    st('2/4 جاري الاتصال بالطابعة...');
+    const server = await withTimeout(device.gatt.connect(), 20000, 'الاتصال بالطابعة');
+    st('3/4 جاري قراءة الخدمات...');
+    const svcs = await withTimeout(server.getPrimaryServices(), 20000, 'قراءة الخدمات');
+    st('4/4 جاري تجهيز قناة الكتابة...');
+    chars = [];
+    for (const s of svcs) {
+      const cs = await withTimeout(s.getCharacteristics(), 20000, 'قراءة القنوات');
+      cs.forEach(c => { if (c.properties.write || c.properties.writeWithoutResponse) chars.push(c); });
+    }
+    if (!chars.length) {
+      throw new Error('الطابعة اتصلت بس مفيش قناة كتابة معروفة. افتح "إعدادات متقدمة" وحط Service UUID بتاع الطابعة (من صفحة الاختبار الأولى).');
+    }
+    chars.sort((a, b) => score(a) - score(b));
+    const saved = Number(ls('tima_ch'));
+    idx = (saved >= 0 && saved < chars.length) ? saved : 0;
+    $('altBtn').style.display = chars.length > 1 ? '' : 'none';
+  } catch (e) {
+    try { device.gatt.disconnect(); } catch (x) {}
+    throw e;
+  }
+}
+
+async function connectFlow() {
+  if (!navigator.bluetooth) throw new Error('المتصفح مش بيدعم البلوتوث — افتح الصفحة من تطبيق Bluefy');
+  if (device) { try { await openGatt(); return; } catch (e) { device = null; } }
+  const extra = $('extraSvc').value.trim();
+  ls('tima_svc', extra);
+  const services = SERVICES.concat(extra ? [extra.toLowerCase()] : []);
+  st('1/4 اختار الطابعة من القايمة اللي هتظهر...');
+  const opts = $('allDev').checked
+    ? { acceptAllDevices: true, optionalServices: services }
+    : { filters: [{ namePrefix: NAME_PREFIX }], optionalServices: services };
+  device = await navigator.bluetooth.requestDevice(opts);
+  device.addEventListener('gattserverdisconnected', () => { chars = []; });
+  await openGatt();
+}
+
+async function write(bytes) {
+  const c = chars[idx];
+  const noResp = !!c.properties.writeWithoutResponse && !!c.writeValueWithoutResponse;
+  let pos = 0;
+  while (pos < bytes.length) {
+    const part = bytes.slice(pos, pos + chunk);
+    try {
+      if (noResp) await c.writeValueWithoutResponse(part); else await c.writeValue(part);
+      pos += part.length;
+      if ((pos / chunk) % 20 < 1) st('جاري الطباعة... ' + Math.round(pos * 100 / bytes.length) + '%');
+      await sleep(chunk > 20 ? 10 : 20);
+    } catch (e) {
+      if (chunk > 20) { chunk = 20; continue; }
+      throw e;
+    }
+  }
+}
+
+// ---------- رسم الإيصال ----------
+function render(r) {
+  const W = PAPER_DOTS, M = 6;
+  const cv = document.createElement('canvas');
+  cv.width = W;
+  cv.height = 1000 + (r.items || []).length * 190 + (r.payments || []).length * 44;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = '#000'; ctx.textBaseline = 'top';
+  try { ctx.direction = 'rtl'; } catch (e) {}
+  let y = 6;
+  const font = (s, b) => { ctx.font = (b ? 'bold ' : '') + s + 'px ' + FONT; };
+  const num = v => (Math.round((Number(v) || 0) * 100) / 100).toLocaleString('en-US');
+  function wrap(t, maxW) {
+    const words = String(t == null ? '' : t).split(/\s+/), lines = [];
+    let cur = '';
+    words.forEach(w => {
+      const test = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; } else cur = test;
+    });
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function center(t, s, b) { font(s, b); ctx.textAlign = 'center'; wrap(t, W - 2 * M).forEach(l => { ctx.fillText(l, W / 2, y); y += s + 8; }); }
+  function right(t, s, b) { font(s, b); ctx.textAlign = 'right'; wrap(t, W - 2 * M).forEach(l => { ctx.fillText(l, W - M, y); y += s + 8; }); }
+  function row(label, val, s, b) {
+    font(s, b);
+    ctx.textAlign = 'right'; ctx.fillText(label, W - M, y);
+    ctx.textAlign = 'left';  ctx.fillText(val, M, y);
+    y += s + 8;
+  }
+  function line() { ctx.fillRect(M, y + 2, W - 2 * M, 2); y += 12; }
+
+  const isCol = r.type === 'collection';
+  center(r.company || '', 26, true);
+  y += 4;
+  ctx.fillRect(M, y, W - 2 * M, 42);
+  ctx.fillStyle = '#fff'; font(28, true); ctx.textAlign = 'center';
+  ctx.fillText(isCol ? 'فاتورة تحصيل' : 'فاتورة مبيعات', W / 2, y + 6);
+  ctx.fillStyle = '#000'; y += 54;
+
+  row('رقم الفاتورة:', '#' + r.number, 24, true);
+  right('التاريخ: ' + (r.date || ''), 22);
+  right('العميل: ' + (r.customer || ''), 24, true);
+  if (r.phone) right('الهاتف: ' + r.phone, 22);
+  if (r.gov) right('المحافظة: ' + r.gov, 22);
+  right('الموظف: ' + (r.employee || ''), 22);
+  line();
+
+  if (!isCol) {
+    (r.items || []).forEach(it => {
+      const nm = (it.isBonus ? 'بونص: ' : '') + String(it.name || '').replace(/^بونص\s*[—-]\s*/, '') +
+                 (it.color ? ' (' + it.color + ')' : '');
+      right(nm, 22, true);
+      row(num(it.qty) + ' ' + (it.unit || '') + (it.isBonus ? '' : ' × ' + num(it.price)),
+          it.isBonus ? 'بونص' : num(it.total), 22, false);
+      ctx.fillRect(M, y, W - 2 * M, 1); y += 8;
+    });
+    y += 4;
+    row('إجمالي الأصناف:', num(r.subtotal) + ' ج', 22);
+    if (Number(r.discount) > 0) row('الخصم:', num(r.discount) + ' ج', 22);
+    row('الصافي:', num(r.net) + ' ج', 28, true);
+    line();
+    (r.payments || []).forEach(p => row(p.method || 'دفع', num(p.amount) + ' ج', 22));
+    row('المدفوع:', num(r.paid) + ' ج', 22, true);
+    row('المتبقي:', num(r.remaining) + ' ج', 24, true);
+    row('الحالة:', r.status || '', 22);
+  } else {
+    y += 6;
+    center('تم تحصيل مبلغ', 24, false);
+    center(num(r.net) + ' جنيه', 34, true);
+    y += 4;
+    right('تم الاستلام من: ' + (r.receivedFrom || r.customer || ''), 24, true);
+    line();
+    (r.payments || []).forEach(p => row(p.method || 'دفع', num(p.amount) + ' ج', 22));
+  }
+
+  if (r.notes) { line(); right('ملاحظات: ' + r.notes, 20); }
+  line();
+  if (r.receiver) right('المستلم: ' + r.receiver, 22, true);
+  y += 10;
+  center('شكراً لتعاملكم معنا', 22, true);
+  y += 40;
+
+  const H = Math.min(Math.ceil(y), cv.height);
+  return { data: ctx.getImageData(0, 0, W, H).data, W: W, H: H };
+}
+
+function toEscPos(img) {
+  const W = img.W, H = img.H, d = img.data, bpr = W / 8;
+  const parts = [new Uint8Array([0x1b, 0x40])];
+  for (let top = 0; top < H; top += STRIP_ROWS) {
+    const h = Math.min(STRIP_ROWS, H - top);
+    const buf = new Uint8Array(8 + bpr * h);
+    buf.set([0x1d, 0x76, 0x30, 0x00, bpr & 255, bpr >> 8, h & 255, h >> 8]);
+    let p = 8;
+    for (let yy = 0; yy < h; yy++) {
+      for (let bx = 0; bx < bpr; bx++) {
+        let b = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const i = ((top + yy) * W + bx * 8 + bit) * 4;
+          if (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11 < 170) b |= 0x80 >> bit;
+        }
+        buf[p++] = b;
+      }
+    }
+    parts.push(buf);
+  }
+  parts.push(new Uint8Array([0x1b, 0x64, 0x04]));
+  let total = 0; parts.forEach(a => total += a.length);
+  const all = new Uint8Array(total);
+  let o = 0; parts.forEach(a => { all.set(a, o); o += a.length; });
+  return all;
+}
+
+// ---------- التشغيل ----------
+async function run() {
+  if (!R) return;
+  const btn = $('goBtn');
+  btn.disabled = true;
+  try {
+    if (!ready()) await connectFlow();
+    st('جاري تجهيز الإيصال...');
+    const data = toEscPos(render(R));
+    await write(data);
+    st('✔ تمت الطباعة' + (chars.length > 1 ? ' (قناة ' + (idx + 1) + '/' + chars.length + '). لو الورق مطلعش دوس "قناة بديلة".' : ''), 'ok');
+    btn.textContent = '🖨 اطبع تاني';
+  } catch (e) {
+    st('❌ ' + (e.message || e), 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function altChannel() {
+  if (chars.length < 2) return;
+  idx = (idx + 1) % chars.length;
+  ls('tima_ch', String(idx));
+  st('اتغيّرت القناة لـ ' + (idx + 1) + '/' + chars.length + ' — بيطبع...');
+  run();
+}
+</script>
+</body>
+</html>
