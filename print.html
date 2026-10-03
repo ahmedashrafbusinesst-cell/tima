@@ -16,7 +16,7 @@
   .sec { width:100%; padding:11px; border:none; border-radius:8px; background:#0f2c4c; color:#fff;
          font-size:14px; font-weight:600; font-family:inherit; cursor:pointer; margin-top:8px; }
   .sec.gray { background:#6b7c8f; }
-  #status { margin-top:12px; padding:12px; border-radius:8px; background:#eef2f7; font-size:15px; font-weight:600; min-height:44px; }
+  #status { margin-top:12px; padding:12px; border-radius:8px; background:#eef2f7; font-size:15px; font-weight:600; min-height:44px; word-break:break-word; }
   #status.ok { background:#eafaf1; color:#1e8449; }
   #status.err { background:#fdecea; color:#c0392b; }
   input { width:100%; padding:10px; border:1px solid #dde3ea; border-radius:6px; font-size:16px; margin-top:6px; }
@@ -41,7 +41,7 @@
   <div style="margin-top:8px">
     <label>Service UUID إضافي (اختياري)</label>
     <input id="extraSvc" placeholder="مثال: 0000ff00-0000-1000-8000-00805f9b34fb" dir="ltr">
-    <label style="margin-top:8px; display:block"><input type="checkbox" id="allDev" style="width:auto"> اعرض كل أجهزة البلوتوث (لو الطابعة مش ظاهرة)</label>
+    <label style="margin-top:8px; display:block"><input type="checkbox" id="allDev" style="width:auto" checked> اعرض كل أجهزة البلوتوث (لو الطابعة مش ظاهرة)</label>
   </div>
 </details>
 
@@ -61,7 +61,13 @@ const SERVICES = [
 let R = null, device = null, chars = [], idx = 0, chunk = 100;
 const $ = id => document.getElementById(id);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-function st(t, cls) { const e = $('status'); e.textContent = t; e.className = cls || ''; }
+// لو مفيش cls يبقى ده نص مرحلة، فبنسجله عشان يظهر مع الخطأ
+function st(t, cls) {
+  const e = $('status');
+  if (!cls) e.dataset.stage = t;
+  e.textContent = t;
+  e.className = cls || '';
+}
 function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} }
 function withTimeout(p, ms, label) {
   return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('انتهى الوقت في مرحلة: ' + label)), ms))]);
@@ -275,6 +281,13 @@ function toEscPos(img) {
 }
 
 // ---------- التشغيل ----------
+function errText(e) {
+  let name = (e && e.name) || typeof e;
+  let msg = '';
+  try { msg = (e && e.message) || (typeof e === 'string' ? e : JSON.stringify(e)); } catch (x) { msg = String(e); }
+  return '[' + name + '] ' + msg;
+}
+
 async function run() {
   if (!R) return;
   const btn = $('goBtn');
@@ -287,7 +300,8 @@ async function run() {
     st('✔ تمت الطباعة' + (chars.length > 1 ? ' (قناة ' + (idx + 1) + '/' + chars.length + '). لو الورق مطلعش دوس "قناة بديلة".' : ''), 'ok');
     btn.textContent = '🖨 اطبع تاني';
   } catch (e) {
-st('❌ [' + (e.name || typeof e) + '] ' + (e.message || JSON.stringify(e)) + ' | مرحلة: ' + ($('status').dataset.stage || '?'), 'err');  } finally {
+    st('❌ ' + errText(e) + ' | مرحلة: ' + ($('status').dataset.stage || '?'), 'err');
+  } finally {
     btn.disabled = false;
   }
 }
