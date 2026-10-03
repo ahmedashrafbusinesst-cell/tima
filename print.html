@@ -124,23 +124,6 @@
     <div class="card">
       <h1>🖨 طباعة الإيصال</h1>
       <div id="summary"></div>
-      <div id="status">جاهز (نسخة 11). اضغط الزرار تحت.</div>
-      <div id="pbar"><div id="pfill"></div></div>
-    </div>
-
-    <div class="card" id="perfCard" style="display: none">
-      <h1>📊 تقرير الأداء (صوّره وابعتهولي)</h1>
-      <pre
-        id="perf"
-        style="
-          white-space: pre-wrap;
-          font-size: 13px;
-          margin: 0 0 8px;
-          font-family: inherit;
-          line-height: 1.8;
-        "
-      ></pre>
-      <button class="sec gray" onclick="copyPerf()">نسخ التقرير</button>
     </div>
 
     <div class="card" id="previewWrap" style="display: none">
@@ -183,27 +166,6 @@
       >
     </div>
 
-    <div class="card">
-      <label style="font-size: 14px; font-weight: 600">سرعة الإرسال</label>
-      <select
-        id="speed"
-        onchange="ls('tima_speed', this.value)"
-        style="
-          width: 100%;
-          padding: 10px;
-          border: 1px solid #dde3ea;
-          border-radius: 6px;
-          font-size: 16px;
-          margin-top: 6px;
-        "
-      >
-        <option value="fast">سريع (الموصى بيه)</option>
-        <option value="turbo">أسرع (لو السريع نجح)</option>
-        <option value="safe">آمن (بطيء، زي الأول)</option>
-      </select>
-      <small>لو الطباعة طلعت رموز مشوشة أو ناقصة، ارجع لـ "آمن".</small>
-    </div>
-
     <button class="big" id="goBtn" onclick="run()">🖨 اتصال وطباعة</button>
     <button
       class="sec gray"
@@ -214,6 +176,13 @@
       قناة بديلة ثم اطبع تاني
     </button>
     <button class="sec" onclick="closeMe()">↩ رجوع للنظام</button>
+
+    <div class="card" id="statusCard" style="margin-top: 12px">
+      <div id="status" style="margin-top: 0">
+        جاهز (نسخة 12). اضغط "اتصال وطباعة" فوق.
+      </div>
+      <div id="pbar"><div id="pfill"></div></div>
+    </div>
 
     <details>
       <summary>إعدادات متقدمة</summary>
@@ -523,7 +492,7 @@
         const canNoResp =
           !!c.properties.writeWithoutResponse && !!c.writeValueWithoutResponse;
         const canResp = !!c.properties.write;
-        const prof = SPEEDS[$('speed').value] || SPEEDS.fast;
+        const prof = SPEEDS.safe;
         let useNoResp = prof.noResp ? canNoResp : !canResp && canNoResp;
         let ck = prof.chunk,
           wait = prof.wait;
@@ -921,6 +890,12 @@
         const btn = $('goBtn');
         btn.disabled = true;
         try {
+          try {
+            $('statusCard').scrollIntoView({
+              behavior: 'smooth',
+              block: 'center',
+            });
+          } catch (x) {}
           const T0 = performance.now();
           PERF = { reused: ready() };
           if (!ready()) await connectFlow();
@@ -937,7 +912,6 @@
           await write(data);
           prog(100, true);
           PERF.total = performance.now() - T0 - (PERF.pick || 0);
-          showPerf();
           st(
             '✔ تمت الطباعة' +
               (chars.length > 1
@@ -974,78 +948,6 @@
         run();
       }
 
-      // ---------- تقرير الأداء ----------
-      function showPerf() {
-        const f = (ms) => (ms / 1000).toFixed(2) + ' ث';
-        const p = PERF,
-          L = [];
-        L.push('الاتصال: ' + (p.reused ? 'كان مفتوح من قبل' : 'جديد'));
-        if (p.pick != null)
-          L.push('اختيار الطابعة (وقت انتظارك): ' + f(p.pick));
-        if (p.gatt != null) L.push('الاتصال وقراءة الخدمات: ' + f(p.gatt));
-        L.push(
-          'رسم الفاتورة: ' +
-            f(p.render) +
-            ' | تحويلها لأوامر الطابعة: ' +
-            f(p.escpos),
-        );
-        L.push(
-          'مقاس الصورة: ' +
-            p.canvas +
-            ' | حجم البيانات: ' +
-            (p.bytes / 1024).toFixed(1) +
-            ' كيلوبايت',
-        );
-        L.push(
-          'عرض الورق: ' +
-            $('paper').value +
-            ' | عدد الأصناف: ' +
-            (R.items || []).length,
-        );
-        L.push('القناة: ' + p.svc + ' | خصائصها: ' + p.props);
-        L.push('السرعة المختارة: ' + p.profile + ' | طريقة الكتابة: ' + p.mode);
-        L.push(
-          'حجم الدفعة: ' +
-            p.chunkStart +
-            (p.fallback
-              ? ' ثم نزل لـ ' + p.chunkEnd + ' (الطابعة رفضت)'
-              : ' (ثابت)'),
-        );
-        L.push(
-          'عدد الدفعات: ' + p.writes + ' | انتظار إجباري بينهم: ' + f(p.slept),
-        );
-        L.push(
-          'وقت الإرسال: ' +
-            f(p.send) +
-            ' | السرعة: ' +
-            (p.bytes / 1024 / (p.send / 1000)).toFixed(1) +
-            ' كيلوبايت/ث',
-        );
-        L.push('الإجمالي (من غير وقت اختيارك): ' + f(p.total));
-        const parts = {
-          الاتصال: p.gatt || 0,
-          التجهيز: (p.render || 0) + (p.escpos || 0),
-          الإرسال: p.send || 0,
-        };
-        const worst = Object.keys(parts).sort((a, b) => parts[b] - parts[a])[0];
-        L.push('أبطأ مرحلة: ' + worst);
-        L.push('المتصفح: ' + navigator.userAgent.slice(0, 80));
-        PERF.text = L.join('\n');
-        $('perf').textContent = PERF.text;
-        $('perfCard').style.display = '';
-      }
-      function copyPerf() {
-        const t = PERF.text || '';
-        try {
-          navigator.clipboard.writeText(t).then(
-            () => alert('اتنسخ'),
-            () => alert('النسخ مش متاح، صوّر الشاشة.'),
-          );
-        } catch (e) {
-          alert('النسخ مش متاح، صوّر الشاشة.');
-        }
-      }
-
       // ---------- المعاينة ----------
       async function showPreview() {
         if (!R) return;
@@ -1066,8 +968,6 @@
       (function () {
         const p = ls('tima_paper');
         if (p) $('paper').value = p;
-        const sp = ls('tima_speed');
-        if (sp && SPEEDS[sp]) $('speed').value = sp;
         showPreview();
       })();
     </script>
