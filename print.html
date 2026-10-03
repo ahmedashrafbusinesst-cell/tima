@@ -171,7 +171,7 @@
 
     <div class="card" id="statusCard" style="margin-top: 12px">
       <div id="status" style="margin-top: 0">
-        جاهز (نسخة 13). اضغط "اتصال وطباعة" فوق.
+        جاهز (نسخة 14). اضغط "اتصال وطباعة" فوق.
       </div>
       <div id="pbar"><div id="pfill"></div></div>
     </div>
@@ -208,6 +208,12 @@
       const NAME_PREFIX = 'XP';
       // القناة الثابتة للطباعة (الترتيب بيبدأ من 0). القناة 2 من 4 هي اللي اتجربت وطبعت = رقم 1
       const FIXED_CHANNEL = 1;
+      // أرقام التواصل اللي بتظهر في آخر الإيصال
+      const CONTACTS = [
+        ['المبيعات:', '01111174321'],
+        ['الحسابات:', '01009988660'],
+        ['الشكاوى والمقترحات:', '01208882121'],
+      ];
       const STRIP_ROWS = 128;
       const FONT = 'Tahoma, "Geeza Pro", Arial, sans-serif';
       const SERVICES = [
@@ -815,7 +821,21 @@
         gap(2);
         line('dashed');
         if (r.receiver) right('المستلم: ' + iso(r.receiver), 24, true);
+        gap(4);
+        line('dashed');
+        // ===== أرقام التواصل =====
+        center('للتواصل معنا', 24, true);
+        gap(2);
+        CONTACTS.forEach((c) => row(c[0], c[1], 23, false));
+        if (!isCol) {
+          // ===== سياسة الاستبدال والاسترجاع =====
+          gap(2);
+          line('dotted');
+          center('الاستبدال والاسترجاع', 23, true);
+          center('متاح لمنتجات ' + iso('MR GENIUS') + ' فقط', 22, false);
+        }
         gap(6);
+        line('dashed');
         center('شكراً لتعاملكم معنا', 26, true);
         y += 50;
 
