@@ -287,8 +287,6 @@ async function run() {
     st('✔ تمت الطباعة' + (chars.length > 1 ? ' (قناة ' + (idx + 1) + '/' + chars.length + '). لو الورق مطلعش دوس "قناة بديلة".' : ''), 'ok');
     btn.textContent = '🖨 اطبع تاني';
   } catch (e) {
-    st('❌ ' + (e.message || e), 'err');
-  } finally {
     btn.disabled = false;
   }
 }
