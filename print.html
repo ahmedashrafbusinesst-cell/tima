@@ -167,19 +167,11 @@
     </div>
 
     <button class="big" id="goBtn" onclick="run()">🖨 اتصال وطباعة</button>
-    <button
-      class="sec gray"
-      id="altBtn"
-      style="display: none"
-      onclick="altChannel()"
-    >
-      قناة بديلة ثم اطبع تاني
-    </button>
     <button class="sec" onclick="closeMe()">↩ رجوع للنظام</button>
 
     <div class="card" id="statusCard" style="margin-top: 12px">
       <div id="status" style="margin-top: 0">
-        جاهز (نسخة 12). اضغط "اتصال وطباعة" فوق.
+        جاهز (نسخة 13). اضغط "اتصال وطباعة" فوق.
       </div>
       <div id="pbar"><div id="pfill"></div></div>
     </div>
@@ -197,11 +189,25 @@
           ><input type="checkbox" id="allDev" style="width: auto" checked />
           اعرض كل أجهزة البلوتوث (لو الطابعة مش ظاهرة)</label
         >
+        <small style="display: block; margin-top: 10px"
+          >للطوارئ فقط: الطباعة ثابتة على قناة واحدة. الزرار ده بيجرّب قناة
+          تانية مرة واحدة ومبيغيّرش القناة الثابتة.</small
+        >
+        <button
+          class="sec gray"
+          id="altBtn"
+          style="display: none"
+          onclick="altChannel()"
+        >
+          قناة بديلة ثم اطبع تاني
+        </button>
       </div>
     </details>
 
     <script>
       const NAME_PREFIX = 'XP';
+      // القناة الثابتة للطباعة (الترتيب بيبدأ من 0). القناة 2 من 4 هي اللي اتجربت وطبعت = رقم 1
+      const FIXED_CHANNEL = 1;
       const STRIP_ROWS = 128;
       const FONT = 'Tahoma, "Geeza Pro", Arial, sans-serif';
       const SERVICES = [
@@ -395,8 +401,7 @@
             );
           }
           chars.sort((a, b) => score(a) - score(b));
-          const saved = Number(ls('tima_ch'));
-          idx = saved >= 0 && saved < chars.length ? saved : 0;
+          idx = FIXED_CHANNEL < chars.length ? FIXED_CHANNEL : 0;
           $('altBtn').style.display = chars.length > 1 ? '' : 'none';
         } catch (e) {
           try {
@@ -912,15 +917,16 @@
           await write(data);
           prog(100, true);
           PERF.total = performance.now() - T0 - (PERF.pick || 0);
+          const cu = (
+            chars[idx] && chars[idx].uuid ? chars[idx].uuid : ''
+          ).slice(0, 8);
           st(
-            '✔ تمت الطباعة' +
-              (chars.length > 1
-                ? ' (قناة ' +
-                  (idx + 1) +
-                  '/' +
-                  chars.length +
-                  '). لو الورق مطلعش دوس "قناة بديلة".'
-                : ''),
+            '✔ تمت الطباعة (قناة ' +
+              (idx + 1) +
+              '/' +
+              chars.length +
+              (cu ? ' - ' + cu : '') +
+              ')',
             'ok',
           );
           btn.textContent = '🖨 اطبع تاني';
@@ -941,7 +947,6 @@
       function altChannel() {
         if (chars.length < 2) return;
         idx = (idx + 1) % chars.length;
-        ls('tima_ch', String(idx));
         st(
           'اتغيّرت القناة لـ ' + (idx + 1) + '/' + chars.length + ' — بيطبع...',
         );
