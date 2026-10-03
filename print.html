@@ -93,6 +93,24 @@
         font-size: 16px;
         margin-top: 6px;
       }
+      #pbar {
+        display: none;
+        height: 16px;
+        background: #e3e8ef;
+        border-radius: 8px;
+        overflow: hidden;
+        margin-top: 10px;
+      }
+      #pfill {
+        height: 100%;
+        width: 0;
+        background: #c8a24a;
+        border-radius: 8px;
+        transition: width 0.15s;
+      }
+      #pbar.done #pfill {
+        background: #1e8449;
+      }
       small {
         color: #6b7c8f;
       }
@@ -106,7 +124,23 @@
     <div class="card">
       <h1>🖨 طباعة الإيصال</h1>
       <div id="summary"></div>
-      <div id="status">جاهز (نسخة 8). اضغط الزرار تحت.</div>
+      <div id="status">جاهز (نسخة 10). اضغط الزرار تحت.</div>
+      <div id="pbar"><div id="pfill"></div></div>
+    </div>
+
+    <div class="card" id="perfCard" style="display: none">
+      <h1>📊 تقرير الأداء (صوّره وابعتهولي)</h1>
+      <pre
+        id="perf"
+        style="
+          white-space: pre-wrap;
+          font-size: 13px;
+          margin: 0 0 8px;
+          font-family: inherit;
+          line-height: 1.8;
+        "
+      ></pre>
+      <button class="sec gray" onclick="copyPerf()">نسخ التقرير</button>
     </div>
 
     <div class="card" id="previewWrap" style="display: none">
@@ -198,7 +232,8 @@
         device = null,
         chars = [],
         idx = 0,
-        chunk = 100;
+        chunk = 100,
+        PERF = {};
       const $ = (id) => document.getElementById(id);
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       // لو مفيش cls يبقى ده نص مرحلة، فبنسجله عشان يظهر مع الخطأ
@@ -207,6 +242,12 @@
         if (!cls) e.dataset.stage = t;
         e.textContent = t;
         e.className = cls || '';
+      }
+      function prog(p, done) {
+        const b = $('pbar');
+        b.style.display = p == null ? 'none' : 'block';
+        b.className = done ? 'done' : '';
+        $('pfill').style.width = (p || 0) + '%';
       }
       function ls(k, v) {
         try {
@@ -430,7 +471,9 @@
           );
         if (device) {
           try {
+            const t = performance.now();
             await openGatt();
+            PERF.gatt = performance.now() - t;
             return;
           } catch (e) {
             device = null;
@@ -438,11 +481,15 @@
         }
         const extra = $('extraSvc').value.trim();
         ls('tima_svc', extra);
+        let t = performance.now();
         device = await requestWithFallback(extra);
+        PERF.pick = performance.now() - t;
         device.addEventListener('gattserverdisconnected', () => {
           chars = [];
         });
+        t = performance.now();
         await openGatt();
+        PERF.gatt = performance.now() - t;
       }
 
       async function write(bytes) {
@@ -451,28 +498,45 @@
           !c.properties.write &&
           !!c.properties.writeWithoutResponse &&
           !!c.writeValueWithoutResponse;
-        let pos = 0;
+        const t0 = performance.now();
+        let pos = 0,
+          n = 0,
+          slept = 0,
+          fallback = false;
+        PERF.chunkStart = chunk;
+        PERF.props =
+          (c.properties.write ? 'write ' : '') +
+          (c.properties.writeWithoutResponse ? 'writeWithoutResponse' : '');
+        PERF.mode = noResp ? 'بدون رد (الأسرع)' : 'مع رد (أبطأ)';
+        PERF.svc = ((c.service && c.service.uuid) || '?').slice(0, 8);
         while (pos < bytes.length) {
           const part = bytes.slice(pos, pos + chunk);
           try {
             if (noResp) await c.writeValueWithoutResponse(part);
             else await c.writeValue(part);
             pos += part.length;
-            if ((pos / chunk) % 20 < 1)
-              st(
-                'جاري الطباعة... ' +
-                  Math.round((pos * 100) / bytes.length) +
-                  '%',
-              );
-            await sleep(chunk > 20 ? 10 : 20);
+            n++;
+            const pc = Math.round((pos * 100) / bytes.length);
+            prog(pc);
+            st('جاري الطباعة... ' + pc + '%');
+            const w = chunk > 20 ? 10 : 20;
+            slept += w;
+            await sleep(w);
           } catch (e) {
             if (chunk > 20) {
               chunk = 20;
+              fallback = true;
               continue;
             }
             throw e;
           }
         }
+        PERF.send = performance.now() - t0;
+        PERF.writes = n;
+        PERF.slept = slept;
+        PERF.chunkEnd = chunk;
+        PERF.fallback = fallback;
+        PERF.bytes = bytes.length;
       }
 
       // ---------- شعار الشركة (لازم يتحط في الريبو باسم logo.png جنب print.html) ----------
@@ -812,11 +876,23 @@
         const btn = $('goBtn');
         btn.disabled = true;
         try {
+          const T0 = performance.now();
+          PERF = { reused: ready() };
           if (!ready()) await connectFlow();
+          prog(0);
           st('جاري تجهيز الإيصال...');
           const logo = await logoPromise;
-          const data = toEscPos(render(R, logo));
+          let tt = performance.now();
+          const img = render(R, logo);
+          PERF.render = performance.now() - tt;
+          PERF.canvas = img.W + '×' + img.H;
+          tt = performance.now();
+          const data = toEscPos(img);
+          PERF.escpos = performance.now() - tt;
           await write(data);
+          prog(100, true);
+          PERF.total = performance.now() - T0 - (PERF.pick || 0);
+          showPerf();
           st(
             '✔ تمت الطباعة' +
               (chars.length > 1
@@ -830,6 +906,7 @@
           );
           btn.textContent = '🖨 اطبع تاني';
         } catch (e) {
+          prog(null);
           st(
             '❌ ' +
               errText(e) +
@@ -850,6 +927,78 @@
           'اتغيّرت القناة لـ ' + (idx + 1) + '/' + chars.length + ' — بيطبع...',
         );
         run();
+      }
+
+      // ---------- تقرير الأداء ----------
+      function showPerf() {
+        const f = (ms) => (ms / 1000).toFixed(2) + ' ث';
+        const p = PERF,
+          L = [];
+        L.push('الاتصال: ' + (p.reused ? 'كان مفتوح من قبل' : 'جديد'));
+        if (p.pick != null)
+          L.push('اختيار الطابعة (وقت انتظارك): ' + f(p.pick));
+        if (p.gatt != null) L.push('الاتصال وقراءة الخدمات: ' + f(p.gatt));
+        L.push(
+          'رسم الفاتورة: ' +
+            f(p.render) +
+            ' | تحويلها لأوامر الطابعة: ' +
+            f(p.escpos),
+        );
+        L.push(
+          'مقاس الصورة: ' +
+            p.canvas +
+            ' | حجم البيانات: ' +
+            (p.bytes / 1024).toFixed(1) +
+            ' كيلوبايت',
+        );
+        L.push(
+          'عرض الورق: ' +
+            $('paper').value +
+            ' | عدد الأصناف: ' +
+            (R.items || []).length,
+        );
+        L.push('القناة: ' + p.svc + ' | خصائصها: ' + p.props);
+        L.push('طريقة الكتابة: ' + p.mode);
+        L.push(
+          'حجم الدفعة: ' +
+            p.chunkStart +
+            (p.fallback
+              ? ' ثم نزل لـ ' + p.chunkEnd + ' (الطابعة رفضت الأكبر)'
+              : ' (ثابت)'),
+        );
+        L.push(
+          'عدد الدفعات: ' + p.writes + ' | انتظار إجباري بينهم: ' + f(p.slept),
+        );
+        L.push(
+          'وقت الإرسال: ' +
+            f(p.send) +
+            ' | السرعة: ' +
+            (p.bytes / 1024 / (p.send / 1000)).toFixed(1) +
+            ' كيلوبايت/ث',
+        );
+        L.push('الإجمالي (من غير وقت اختيارك): ' + f(p.total));
+        const parts = {
+          الاتصال: p.gatt || 0,
+          التجهيز: (p.render || 0) + (p.escpos || 0),
+          الإرسال: p.send || 0,
+        };
+        const worst = Object.keys(parts).sort((a, b) => parts[b] - parts[a])[0];
+        L.push('أبطأ مرحلة: ' + worst);
+        L.push('المتصفح: ' + navigator.userAgent.slice(0, 80));
+        PERF.text = L.join('\n');
+        $('perf').textContent = PERF.text;
+        $('perfCard').style.display = '';
+      }
+      function copyPerf() {
+        const t = PERF.text || '';
+        try {
+          navigator.clipboard.writeText(t).then(
+            () => alert('اتنسخ'),
+            () => alert('النسخ مش متاح، صوّر الشاشة.'),
+          );
+        } catch (e) {
+          alert('النسخ مش متاح، صوّر الشاشة.');
+        }
       }
 
       // ---------- المعاينة ----------
