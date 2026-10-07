@@ -224,6 +224,8 @@
     <script>
       const NAME_PREFIX = 'XP';
       const FIXED_CHANNEL = 1;
+      const IS_ANDROID = /Android/i.test(navigator.userAgent);
+      const CH_KEY = 'tima_ch_' + (IS_ANDROID ? 'and' : 'oth');
       const CONTACTS = [
         ['المبيعات:', '01111174321'],
         ['الحسابات:', '01009988660'],
@@ -514,7 +516,15 @@
             );
           }
           chars.sort((a, b) => score(a) - score(b));
-          idx = FIXED_CHANNEL < chars.length ? FIXED_CHANNEL : 0;
+          const savedCh = parseInt(ls(CH_KEY), 10);
+          idx =
+            savedCh >= 0 && savedCh < chars.length
+              ? savedCh
+              : IS_ANDROID
+                ? 0
+                : FIXED_CHANNEL < chars.length
+                  ? FIXED_CHANNEL
+                  : 0;
           $('altBtn').style.display = chars.length > 1 ? '' : 'none';
         } catch (e) {
           try {
@@ -1080,6 +1090,7 @@
           const img = render(R, logo);
           const data = toEscPos(img);
           await write(data);
+          ls(CH_KEY, String(idx));
           prog(100, true);
           st('✔ تمت الطباعة', 'ok');
           btn.textContent = '🖨 اطبع تاني';
