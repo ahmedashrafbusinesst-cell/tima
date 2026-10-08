@@ -892,7 +892,8 @@
       }
       function finishCanvas(state) {
         const { W, cv, ctx, y } = state;
-        const H = Math.min(Math.ceil(y + 4), cv.height);
+        const MIN_H = 700; // الحد الأدنى لطول الورقة بالنقط
+        const H = Math.min(Math.max(Math.ceil(y + 4), MIN_H), cv.height);
         const out = document.createElement('canvas');
         out.width = W;
         out.height = H;
@@ -1110,7 +1111,7 @@
         h.gap(6);
         h.line('dashed');
         h.center('شكراً لتعاملكم معنا', 26, true);
-        state.y -= 6;
+        h.gap(30); // فراغ صغير تحت الكلمة
         return finishCanvas(state);
       }
 
@@ -1161,7 +1162,7 @@
         h.gap(6);
         h.line('dashed');
         h.center('شكراً لتعاملكم معنا', 26, true);
-        state.y -= 6;
+        h.gap(30);
         return finishCanvas(state);
       }
 
@@ -1220,8 +1221,8 @@
         }
         h.gap(6);
         h.line('dashed');
-        h.center('تقرير جرد — يتحدث مع كل بيع', 20, false);
-        state.y -= 6;
+        h.center('شكراً لتعاملكم معنا', 26, true);
+        h.gap(30); // فراغ صغير تحت الكلمة
         return finishCanvas(state);
       }
 
@@ -1268,7 +1269,16 @@
           }
           parts.push(buf);
         }
+
+        // استراحة قبل القطع (للبلوتوث المباشر بس، RawBT مش محتاجها)
+        if (!skipPause) {
+          parts.push(null);
+        }
+
         // تغذية لموضع القطع ثم قطع الورقة (GS V 66 0)
+        // تغذية ورق قبل القطع (ESC J n): n بالنقط، 8 نقط تقريباً = 1 مم
+        parts.push(new Uint8Array([0x1b, 0x4a, 120]));
+        // ثم تغذية لموضع القطع وقطع الورقة (GS V 66 0)
         parts.push(new Uint8Array([0x1d, 0x56, 0x42, 0x00]));
         return parts;
       }
