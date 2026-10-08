@@ -183,7 +183,8 @@
         <option value="384">58 مم (الورق الصغير)</option>
       </select>
       <small
-        >لو الطباعة طالعة رموز مشوشة أو مقصوصة، غيّر العرض وجرّب تاني.</small
+        >لازم يكون نفس عرض الورق المضبوط في RawBT. لو الطباعة مقصوصة أو مشوشة،
+        غيّر العرض وجرّب تاني.</small
       >
     </div>
     <button class="big" id="goBtn" onclick="run()">🖨 اتصال وطباعة</button>
@@ -220,7 +221,7 @@
           قناة بديلة ثم اطبع تاني
         </button>
         <hr class="dash" />
-        <b>لوحة التجارب (للأندرويد)</b>
+        <b>لوحة التجارب (بلوتوث مباشر)</b>
         <label style="display: block; margin-top: 8px">القناة</label>
         <select id="chSel" onchange="onCh()"></select>
         <label style="display: block; margin-top: 8px">طريقة الكتابة</label>
@@ -265,7 +266,9 @@
           dir="ltr"
           onchange="saveCfg()"
         />
-        <button class="sec" onclick="run()">🖨 اطبع بالإعدادات دي</button>
+        <button class="sec" onclick="runBluetooth()">
+          🖨 اطبع بالإعدادات دي (بلوتوث مباشر)
+        </button>
       </div>
     </details>
     <script>
@@ -1134,20 +1137,21 @@
       }
 
       // بيرجّع مصفوفة شرايح (كل شريحة Uint8Array) بدل بايتات مدمجة
-      // على أندرويد: شرائح أصغر + علامة استراحة بعد التهيئة
-      function toEscPos(img) {
+      // rowsOverride: عدد أسطر الشريحة (RawBT بيستخدم شرايح أكبر)
+      // skipPause: من غير علامة الاستراحة (مش محتاجينها مع RawBT)
+      function toEscPos(img, rowsOverride, skipPause) {
         const W = img.W,
           H = img.H,
           d = img.data,
           bpr = W / 8;
         const parts = [new Uint8Array([0x1b, 0x40])]; // تهيئة ESC @
 
-        // ★ استراحة بعد التهيئة (مهم على أندرويد عشان الطابعة تلحق)
-        if (IS_ANDROID) {
+        // استراحة بعد التهيئة (للبلوتوث المباشر على أندرويد بس)
+        if (IS_ANDROID && !skipPause) {
           parts.push(null);
         }
 
-        const ROWS = cfg().rows;
+        const ROWS = rowsOverride || cfg().rows;
         for (let top = 0; top < H; top += ROWS) {
           const h = Math.min(ROWS, H - top);
           const buf = new Uint8Array(8 + bpr * h);
@@ -1190,7 +1194,57 @@
         }
         return '[' + name + '] ' + msg;
       }
-      async function run() {
+
+      // ---------- الطباعة عبر RawBT (أندرويد) ----------
+      function toBase64(parts) {
+        const all = parts.filter(Boolean);
+        const len = all.reduce((s, a) => s + a.length, 0);
+        const out = new Uint8Array(len);
+        let o = 0;
+        all.forEach((a) => {
+          out.set(a, o);
+          o += a.length;
+        });
+        let bin = '';
+        for (let i = 0; i < out.length; i += 0x8000) {
+          bin += String.fromCharCode.apply(null, out.subarray(i, i + 0x8000));
+        }
+        return btoa(bin);
+      }
+
+      async function printRawBT() {
+        if (!R) return;
+        const btn = $('goBtn');
+        btn.disabled = true;
+        try {
+          prog(null);
+          st('جاري تجهيز الإيصال...');
+          const logo = await logoPromise;
+          const img = render(R, logo);
+          const b64 = toBase64(toEscPos(img, 128, true));
+          st('جاري فتح راو بي تي...');
+          location.href =
+            'intent:base64,' +
+            b64 +
+            '#Intent;scheme=rawbt;launchFlags=0x10000000;package=ru.a402d.rawbtprinter;end;';
+          setTimeout(() => {
+            st('✔ اتبعت للتطبيق. لو مفتحش اتأكد إنه منزّل.', 'ok');
+            btn.textContent = '🖨 اطبع تاني عبر راو بي تي';
+            btn.disabled = false;
+          }, 1500);
+        } catch (e) {
+          st('❌ ' + errText(e), 'err');
+          btn.disabled = false;
+        }
+      }
+
+      // الزرار الكبير: أندرويد → RawBT ، باقي الأجهزة → بلوتوث مباشر (Bluefy)
+      function run() {
+        if (IS_ANDROID) return printRawBT();
+        return runBluetooth();
+      }
+
+      async function runBluetooth() {
         if (!R) return;
         const btn = $('goBtn');
         btn.disabled = true;
@@ -1246,7 +1300,7 @@
         st(
           'اتغيّرت القناة لـ ' + (idx + 1) + '/' + chars.length + ' — بيطبع...',
         );
-        run();
+        runBluetooth();
       }
       async function showPreview() {
         if (!R) return;
@@ -1269,6 +1323,10 @@
         if (p) $('paper').value = p;
         loadCfg();
         showPreview();
+        if (IS_ANDROID) {
+          $('goBtn').textContent = '🖨 اطبع عبر راو بي تي';
+          st('جاهز. اضغط "اطبع عبر راو بي تي" فوق.');
+        }
       })();
     </script>
   </body>
