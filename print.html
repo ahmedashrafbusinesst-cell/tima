@@ -954,22 +954,18 @@
         function gap(n) {
           state.y += n;
         }
-        // نقطة (بولت) كبيرة + نص تقيل
+        // نقطة كبيرة + نص عادي واضح (من غير تتقيل)
         function bullet(t, s) {
-          font(s, true);
+          font(s, false);
           ctx.textAlign = 'right';
-          ctx.lineJoin = 'round';
-          const tx = W - M - 28;
-          wrap(t, W - 2 * M - 28).forEach((l, i) => {
+          const tx = W - M - 34;
+          wrap(t, W - 2 * M - 34).forEach((l, i) => {
             if (i === 0) {
               ctx.beginPath();
-              ctx.arc(W - M - 9, state.y + s / 2 + 3, 9, 0, Math.PI * 2);
+              ctx.arc(W - M - 12, state.y + s / 2 + 3, 12, 0, Math.PI * 2);
               ctx.fill();
             }
             ctx.fillText(l, tx, state.y);
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = '#000';
-            ctx.strokeText(l, tx, state.y);
             state.y += s + 10;
           });
         }
