@@ -279,9 +279,10 @@
         ['الشكاوى والمقترحات:', '01208882121'],
       ];
       // ---------- إعدادات الإرسال (بتتغيّر من لوحة التجارب وبتتحفظ) ----------
+      // أندرويد: حزم صغيرة + تأخير أكبر + شرائح صورة أصغر عشان متتلخبطش
       const PREF = 'tima4_' + (IS_ANDROID ? 'and' : 'oth') + '_';
       const DEF = IS_ANDROID
-        ? { mode: 'noresp', ck: 20, dl: 10, rows: 128, sp: 0 }
+        ? { mode: 'noresp', ck: 20, dl: 35, rows: 24, sp: 80 }
         : { mode: 'auto', ck: 100, dl: 10, rows: 128, sp: 0 };
       const FONT = 'Tahoma, "Geeza Pro", Arial, sans-serif';
       const SERVICES = [
@@ -1133,12 +1134,19 @@
       }
 
       // بيرجّع مصفوفة شرايح (كل شريحة Uint8Array) بدل بايتات مدمجة
+      // على أندرويد: شرائح أصغر + علامة استراحة بعد التهيئة
       function toEscPos(img) {
         const W = img.W,
           H = img.H,
           d = img.data,
           bpr = W / 8;
-        const parts = [new Uint8Array([0x1b, 0x40])];
+        const parts = [new Uint8Array([0x1b, 0x40])]; // تهيئة ESC @
+
+        // ★ استراحة بعد التهيئة (مهم على أندرويد عشان الطابعة تلحق)
+        if (IS_ANDROID) {
+          parts.push(null);
+        }
+
         const ROWS = cfg().rows;
         for (let top = 0; top < H; top += ROWS) {
           const h = Math.min(ROWS, H - top);
@@ -1167,7 +1175,7 @@
           }
           parts.push(buf);
         }
-        parts.push(new Uint8Array([0x1b, 0x64, 0x04]));
+        parts.push(new Uint8Array([0x1b, 0x64, 0x04])); // feed
         return parts;
       }
 
@@ -1201,9 +1209,15 @@
           const logo = await logoPromise;
           const img = render(R, logo);
           const parts = toEscPos(img);
-          const totalLen = parts.reduce((s, a) => s + a.length, 0);
+          // نحسب الطول من الأجزاء الحقيقية بس (نتجاهل null)
+          const totalLen = parts.reduce((s, a) => s + (a ? a.length : 0), 0);
           let done = 0;
           for (const p of parts) {
+            if (p === null) {
+              // استراحة بعد التهيئة على أندرويد
+              await sleep(IS_ANDROID ? 120 : 30);
+              continue;
+            }
             await write(p, done, totalLen);
             done += p.length;
             if (C.sp) await sleep(C.sp);
