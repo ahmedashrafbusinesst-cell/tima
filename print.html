@@ -231,7 +231,9 @@
         ['الحسابات:', '01009988660'],
         ['الشكاوى والمقترحات:', '01208882121'],
       ];
-      const STRIP_ROWS = 128;
+      // الأندرويد: شرايح صغيرة + استراحة بين كل شريحة (لو لسه فيه تلخبط ارفع STRIP_PAUSE)
+      const STRIP_ROWS = IS_ANDROID ? 32 : 128;
+      const STRIP_PAUSE = IS_ANDROID ? 350 : 0; // مللي ثانية
       const FONT = 'Tahoma, "Geeza Pro", Arial, sans-serif';
       const SERVICES = [
         '000018f0-0000-1000-8000-00805f9b34fb',
@@ -467,7 +469,7 @@
         );
       }
 
-      // ---------- البلوتوث (نفس منطق النسخة السابقة) ----------
+      // ---------- البلوتوث ----------
       function score(c) {
         const u = (c.service && c.service.uuid) || '';
         if (u.indexOf('000018f0') === 0) return 0;
@@ -598,29 +600,32 @@
         });
         await openGatt();
       }
-      async function write(bytes) {
+
+      // كتابة شريحة واحدة على الطابعة (base/total لحساب نسبة التقدم الكلية)
+      async function write(bytes, base, total) {
+        base = base || 0;
+        total = total || bytes.length;
         const c = chars[idx];
         const canNoResp =
           !!c.properties.writeWithoutResponse && !!c.writeValueWithoutResponse;
         const canResp = !!c.properties.write;
         let useNoResp = !canResp && canNoResp;
-        let ck = IS_ANDROID ? 20 : 100,
-          wait = IS_ANDROID ? 30 : 10;
+        let ck = IS_ANDROID ? 20 : 100;
         let pos = 0;
         while (pos < bytes.length) {
+          const wait = IS_ANDROID ? (useNoResp ? 30 : 8) : 10;
           const part = bytes.slice(pos, pos + ck);
           try {
             if (useNoResp) await c.writeValueWithoutResponse(part);
             else await c.writeValue(part);
             pos += part.length;
-            const pc = Math.round((pos * 100) / bytes.length);
+            const pc = Math.round(((base + pos) * 100) / total);
             prog(pc);
             st('جاري الطباعة... ' + pc + '%');
             await sleep(wait);
           } catch (e) {
             if (ck > 20) {
               ck = 20;
-              wait = 30;
               continue;
             }
             if (useNoResp && canResp) {
@@ -631,6 +636,7 @@
           }
         }
       }
+
       // ---------- شعار ----------
       let LOGO_INFO = 'الشعار: بيدور على الملف...';
       const LOGO_NAMES = [
@@ -1006,6 +1012,7 @@
         return finishCanvas(state);
       }
 
+      // بيرجّع مصفوفة شرايح (كل شريحة Uint8Array) بدل بايتات مدمجة
       function toEscPos(img) {
         const W = img.W,
           H = img.H,
@@ -1040,15 +1047,7 @@
           parts.push(buf);
         }
         parts.push(new Uint8Array([0x1b, 0x64, 0x04]));
-        let total = 0;
-        parts.forEach((a) => (total += a.length));
-        const all = new Uint8Array(total);
-        let o = 0;
-        parts.forEach((a) => {
-          all.set(a, o);
-          o += a.length;
-        });
-        return all;
+        return parts;
       }
 
       function errText(e) {
@@ -1078,8 +1077,14 @@
           st('جاري تجهيز الإيصال...');
           const logo = await logoPromise;
           const img = render(R, logo);
-          const data = toEscPos(img);
-          await write(data);
+          const parts = toEscPos(img);
+          const totalLen = parts.reduce((s, a) => s + a.length, 0);
+          let done = 0;
+          for (const p of parts) {
+            await write(p, done, totalLen);
+            done += p.length;
+            if (STRIP_PAUSE) await sleep(STRIP_PAUSE);
+          }
           ls(CH_KEY, String(idx));
           prog(100, true);
           st('✔ تمت الطباعة', 'ok');
