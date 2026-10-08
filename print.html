@@ -225,7 +225,7 @@
       const NAME_PREFIX = 'XP';
       const FIXED_CHANNEL = 1;
       const IS_ANDROID = /Android/i.test(navigator.userAgent);
-      const CH_KEY = 'tima_ch_' + (IS_ANDROID ? 'and' : 'oth');
+      const CH_KEY = 'tima2_ch_' + (IS_ANDROID ? 'and' : 'oth');
       const CONTACTS = [
         ['المبيعات:', '01111174321'],
         ['الحسابات:', '01009988660'],
@@ -520,11 +520,9 @@
           idx =
             savedCh >= 0 && savedCh < chars.length
               ? savedCh
-              : IS_ANDROID
-                ? 0
-                : FIXED_CHANNEL < chars.length
-                  ? FIXED_CHANNEL
-                  : 0;
+              : FIXED_CHANNEL < chars.length
+                ? FIXED_CHANNEL
+                : 0;
           $('altBtn').style.display = chars.length > 1 ? '' : 'none';
         } catch (e) {
           try {
@@ -606,8 +604,8 @@
           !!c.properties.writeWithoutResponse && !!c.writeValueWithoutResponse;
         const canResp = !!c.properties.write;
         let useNoResp = !canResp && canNoResp;
-        let ck = 100,
-          wait = 10;
+        let ck = IS_ANDROID ? 20 : 100,
+          wait = IS_ANDROID ? 30 : 10;
         let pos = 0;
         while (pos < bytes.length) {
           const part = bytes.slice(pos, pos + ck);
@@ -620,27 +618,19 @@
             st('جاري الطباعة... ' + pc + '%');
             await sleep(wait);
           } catch (e) {
-            if (ck > 100) {
-              ck = 100;
-              wait = 10;
-              continue;
-            }
             if (ck > 20) {
               ck = 20;
-              wait = 20;
+              wait = 30;
               continue;
             }
             if (useNoResp && canResp) {
               useNoResp = false;
-              ck = 100;
-              wait = 10;
               continue;
             }
             throw e;
           }
         }
       }
-
       // ---------- شعار ----------
       let LOGO_INFO = 'الشعار: بيدور على الملف...';
       const LOGO_NAMES = [
