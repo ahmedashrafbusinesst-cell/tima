@@ -219,6 +219,53 @@
         >
           قناة بديلة ثم اطبع تاني
         </button>
+        <hr class="dash" />
+        <b>لوحة التجارب (للأندرويد)</b>
+        <label style="display: block; margin-top: 8px">القناة</label>
+        <select id="chSel" onchange="onCh()"></select>
+        <label style="display: block; margin-top: 8px">طريقة الكتابة</label>
+        <select id="modeSel" onchange="saveCfg()">
+          <option value="auto">تلقائي</option>
+          <option value="resp">مع تأكيد (Write)</option>
+          <option value="noresp">من غير تأكيد (Write Without Response)</option>
+        </select>
+        <label style="display: block; margin-top: 8px">حجم الحزمة (بايت)</label>
+        <input
+          id="ckIn"
+          type="number"
+          inputmode="numeric"
+          dir="ltr"
+          onchange="saveCfg()"
+        />
+        <label style="display: block; margin-top: 8px"
+          >الانتظار بين الحزم (مللي ثانية)</label
+        >
+        <input
+          id="dlIn"
+          type="number"
+          inputmode="numeric"
+          dir="ltr"
+          onchange="saveCfg()"
+        />
+        <label style="display: block; margin-top: 8px">عدد أسطر الشريحة</label>
+        <input
+          id="rowIn"
+          type="number"
+          inputmode="numeric"
+          dir="ltr"
+          onchange="saveCfg()"
+        />
+        <label style="display: block; margin-top: 8px"
+          >استراحة بين الشرايح (مللي ثانية)</label
+        >
+        <input
+          id="spIn"
+          type="number"
+          inputmode="numeric"
+          dir="ltr"
+          onchange="saveCfg()"
+        />
+        <button class="sec" onclick="run()">🖨 اطبع بالإعدادات دي</button>
       </div>
     </details>
     <script>
@@ -231,9 +278,11 @@
         ['الحسابات:', '01009988660'],
         ['الشكاوى والمقترحات:', '01208882121'],
       ];
-      // الأندرويد: شرايح صغيرة + استراحة بين كل شريحة (لو لسه فيه تلخبط ارفع STRIP_PAUSE)
-      const STRIP_ROWS = IS_ANDROID ? 32 : 128;
-      const STRIP_PAUSE = IS_ANDROID ? 350 : 0; // مللي ثانية
+      // ---------- إعدادات الإرسال (بتتغيّر من لوحة التجارب وبتتحفظ) ----------
+      const PREF = 'tima4_' + (IS_ANDROID ? 'and' : 'oth') + '_';
+      const DEF = IS_ANDROID
+        ? { mode: 'noresp', ck: 20, dl: 10, rows: 128, sp: 0 }
+        : { mode: 'auto', ck: 100, dl: 10, rows: 128, sp: 0 };
       const FONT = 'Tahoma, "Geeza Pro", Arial, sans-serif';
       const SERVICES = [
         '000018f0-0000-1000-8000-00805f9b34fb',
@@ -477,6 +526,71 @@
         if (u.indexOf('49535343') === 0) return 2;
         return 3;
       }
+      function loadCfg() {
+        const g = (k) => {
+          const v = ls(PREF + k);
+          return v == null || v === '' ? DEF[k] : v;
+        };
+        $('modeSel').value = g('mode');
+        $('ckIn').value = g('ck');
+        $('dlIn').value = g('dl');
+        $('rowIn').value = g('rows');
+        $('spIn').value = g('sp');
+      }
+      function saveCfg() {
+        ls(PREF + 'mode', $('modeSel').value);
+        ls(PREF + 'ck', $('ckIn').value);
+        ls(PREF + 'dl', $('dlIn').value);
+        ls(PREF + 'rows', $('rowIn').value);
+        ls(PREF + 'sp', $('spIn').value);
+      }
+      function cfg() {
+        const n = (id, d, lo, hi) => {
+          const v = parseInt($(id).value, 10);
+          return isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d;
+        };
+        return {
+          mode: $('modeSel').value,
+          ck: n('ckIn', DEF.ck, 1, 512),
+          dl: n('dlIn', DEF.dl, 0, 1000),
+          rows: n('rowIn', DEF.rows, 8, 255),
+          sp: n('spIn', DEF.sp, 0, 5000),
+        };
+      }
+      function shortUuid(u) {
+        u = String(u || '');
+        return u.indexOf('0000') === 0 &&
+          u.slice(8) === '-0000-1000-8000-00805f9b34fb'
+          ? u.slice(4, 8)
+          : u.slice(0, 8);
+      }
+      function fillCh() {
+        const sel = $('chSel');
+        sel.innerHTML = '';
+        chars.forEach((c, i) => {
+          const p = [];
+          if (c.properties.write) p.push('W');
+          if (c.properties.writeWithoutResponse) p.push('WNR');
+          const o = document.createElement('option');
+          o.value = i;
+          o.textContent =
+            i +
+            1 +
+            ') ' +
+            shortUuid(c.service && c.service.uuid) +
+            ' / ' +
+            shortUuid(c.uuid) +
+            ' [' +
+            p.join('+') +
+            ']';
+          sel.appendChild(o);
+        });
+        sel.value = idx;
+      }
+      function onCh() {
+        const v = parseInt($('chSel').value, 10);
+        if (v >= 0 && v < chars.length) idx = v;
+      }
       function ready() {
         return !!(
           device &&
@@ -525,6 +639,7 @@
               : FIXED_CHANNEL < chars.length
                 ? FIXED_CHANNEL
                 : 0;
+          fillCh();
           $('altBtn').style.display = chars.length > 1 ? '' : 'none';
         } catch (e) {
           try {
@@ -605,24 +720,29 @@
       async function write(bytes, base, total) {
         base = base || 0;
         total = total || bytes.length;
+        const C = cfg();
         const c = chars[idx];
         const canNoResp =
           !!c.properties.writeWithoutResponse && !!c.writeValueWithoutResponse;
         const canResp = !!c.properties.write;
-        let useNoResp = !canResp && canNoResp;
-        let ck = IS_ANDROID ? 20 : 100;
+        let useNoResp;
+        if (C.mode === 'noresp' && canNoResp) useNoResp = true;
+        else if (C.mode === 'resp' && canResp) useNoResp = false;
+        else useNoResp = !canResp && canNoResp;
+        let ck = C.ck;
         let pos = 0;
         while (pos < bytes.length) {
-          const wait = IS_ANDROID ? (useNoResp ? 30 : 8) : 10;
           const part = bytes.slice(pos, pos + ck);
           try {
             if (useNoResp) await c.writeValueWithoutResponse(part);
+            else if (c.writeValueWithResponse)
+              await c.writeValueWithResponse(part);
             else await c.writeValue(part);
             pos += part.length;
             const pc = Math.round(((base + pos) * 100) / total);
             prog(pc);
             st('جاري الطباعة... ' + pc + '%');
-            await sleep(wait);
+            if (C.dl) await sleep(C.dl);
           } catch (e) {
             if (ck > 20) {
               ck = 20;
@@ -1019,8 +1139,9 @@
           d = img.data,
           bpr = W / 8;
         const parts = [new Uint8Array([0x1b, 0x40])];
-        for (let top = 0; top < H; top += STRIP_ROWS) {
-          const h = Math.min(STRIP_ROWS, H - top);
+        const ROWS = cfg().rows;
+        for (let top = 0; top < H; top += ROWS) {
+          const h = Math.min(ROWS, H - top);
           const buf = new Uint8Array(8 + bpr * h);
           buf.set([
             0x1d,
@@ -1073,6 +1194,8 @@
             });
           } catch (x) {}
           if (!ready()) await connectFlow();
+          onCh();
+          const C = cfg();
           prog(0);
           st('جاري تجهيز الإيصال...');
           const logo = await logoPromise;
@@ -1083,7 +1206,7 @@
           for (const p of parts) {
             await write(p, done, totalLen);
             done += p.length;
-            if (STRIP_PAUSE) await sleep(STRIP_PAUSE);
+            if (C.sp) await sleep(C.sp);
           }
           ls(CH_KEY, String(idx));
           prog(100, true);
@@ -1105,6 +1228,7 @@
       function altChannel() {
         if (chars.length < 2) return;
         idx = (idx + 1) % chars.length;
+        $('chSel').value = idx;
         st(
           'اتغيّرت القناة لـ ' + (idx + 1) + '/' + chars.length + ' — بيطبع...',
         );
@@ -1129,6 +1253,7 @@
       (function () {
         const p = ls('tima_paper');
         if (p) $('paper').value = p;
+        loadCfg();
         showPreview();
       })();
     </script>
