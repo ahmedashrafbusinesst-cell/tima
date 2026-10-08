@@ -276,6 +276,9 @@
       const FIXED_CHANNEL = 1;
       const COMPANY_NAME = 'شركة تيما للاستيراد والتصدير';
       const IS_ANDROID = /Android/i.test(navigator.userAgent);
+      const FEED_BEFORE_CUT = IS_ANDROID ? 0 : 120; // تغذية قبل القطع (الأندرويد: بدون)
+      const MIN_PAPER_H = IS_ANDROID ? 0 : 700; // حد أدنى لطول الورقة
+      const TAIL_GAP = IS_ANDROID ? -6 : 30; // الفراغ تحت "شكراً لتعاملكم معنا"
       const CH_KEY = 'tima2_ch_' + (IS_ANDROID ? 'and' : 'oth');
       const CONTACTS = [
         ['المبيعات:', '01111174321'],
@@ -365,54 +368,82 @@
         );
       }
       // التاريخ بالعربي وبتوقيت مصر (مثال: ٨ أكتوبر ٢٠٢٦ - ٣:٣٠ م)
+      // تاريخ ثابت الشكل على كل الأجهزة، مثال: ٨ أكتوبر ٢٠٢٦ - ٣:٣٠ م
+      const DATE_ARABIC_DIGITS = true; // false = أرقام إنجليزي
       function fmtDate(v) {
         if (v == null || v === '') return '';
         const s = String(v).trim();
-        let d = null,
-          tz = 'Africa/Cairo',
-          hasTime = false;
-        // شكل يوم/شهر/سنة (الشكل المصري)
+        const MONTHS = [
+          'يناير',
+          'فبراير',
+          'مارس',
+          'أبريل',
+          'مايو',
+          'يونيو',
+          'يوليو',
+          'أغسطس',
+          'سبتمبر',
+          'أكتوبر',
+          'نوفمبر',
+          'ديسمبر',
+        ];
+        let Y,
+          Mo,
+          D,
+          hh = null,
+          mm = null;
         const m = s.match(
           /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:[ ,T]+(\d{1,2}):(\d{2}))?/,
         );
         if (m) {
-          d = new Date(
-            Date.UTC(
-              +m[3],
-              +m[2] - 1,
-              +m[1],
-              m[4] ? +m[4] : 0,
-              m[5] ? +m[5] : 0,
-            ),
-          );
-          tz = 'UTC'; // الوقت مكتوب أصلاً بتوقيت مصر، فمن غير تحويل
-          hasTime = !!m[4];
+          D = +m[1];
+          Mo = +m[2];
+          Y = +m[3];
+          if (m[4]) {
+            hh = +m[4];
+            mm = +m[5];
+          }
         } else {
           const t = new Date(s);
-          if (!isNaN(t.getTime())) {
-            d = t;
-            hasTime = /\d:\d/.test(s);
+          if (isNaN(t.getTime())) return s;
+          try {
+            const p = {};
+            new Intl.DateTimeFormat('en-US', {
+              timeZone: 'Africa/Cairo',
+              year: 'numeric',
+              month: 'numeric',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: 'numeric',
+              hourCycle: 'h23',
+            })
+              .formatToParts(t)
+              .forEach((x) => (p[x.type] = x.value));
+            Y = +p.year;
+            Mo = +p.month;
+            D = +p.day;
+            if (/\d:\d/.test(s)) {
+              hh = +p.hour % 24;
+              mm = +p.minute;
+            }
+          } catch (e) {
+            return s;
           }
         }
-        if (!d) return s;
-        const o = {
-          timeZone: tz,
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        };
-        if (hasTime) {
-          o.hour = 'numeric';
-          o.minute = '2-digit';
-          o.hour12 = true;
+        if (!(Mo >= 1 && Mo <= 12)) return s;
+        let out = D + ' ' + MONTHS[Mo - 1] + ' ' + Y;
+        if (hh != null) {
+          out +=
+            ' - ' +
+            (hh % 12 || 12) +
+            ':' +
+            String(mm).padStart(2, '0') +
+            ' ' +
+            (hh >= 12 ? 'م' : 'ص');
         }
-        try {
-          return new Intl.DateTimeFormat('ar-EG', o)
-            .format(d)
-            .replace(/\s+في\s+/, ' - ');
-        } catch (e) {
-          return s;
-        }
+        return DATE_ARABIC_DIGITS
+          ? out.replace(/\d/g, (d) => '٠١٢٣٤٥٦٧٨٩'[d])
+          : out;
       }
       // ترتيب أجزاء اسم الصنف: الاسم ← التركيز ← الحجم ← اللون
       function itemParts(it) {
@@ -892,7 +923,7 @@
       }
       function finishCanvas(state) {
         const { W, cv, ctx, y } = state;
-        const MIN_H = 700; // الحد الأدنى لطول الورقة بالنقط
+        const MIN_H = MIN_PAPER_H;
         const H = Math.min(Math.max(Math.ceil(y + 4), MIN_H), cv.height);
         const out = document.createElement('canvas');
         out.width = W;
@@ -1111,7 +1142,7 @@
         h.gap(6);
         h.line('dashed');
         h.center('شكراً لتعاملكم معنا', 26, true);
-        h.gap(30); // فراغ صغير تحت الكلمة
+        h.gap(TAIL_GAP); // فراغ صغير تحت الكلمة
         return finishCanvas(state);
       }
 
@@ -1162,7 +1193,7 @@
         h.gap(6);
         h.line('dashed');
         h.center('شكراً لتعاملكم معنا', 26, true);
-        h.gap(30);
+        h.gap(TAIL_GAP);
         return finishCanvas(state);
       }
 
@@ -1222,7 +1253,7 @@
         h.gap(6);
         h.line('dashed');
         h.center('شكراً لتعاملكم معنا', 26, true);
-        h.gap(30); // فراغ صغير تحت الكلمة
+        h.gap(TAIL_GAP); // فراغ صغير تحت الكلمة
         return finishCanvas(state);
       }
 
@@ -1275,14 +1306,15 @@
           parts.push(null);
         }
 
-        // تغذية لموضع القطع ثم قطع الورقة (GS V 66 0)
         // تغذية ورق قبل القطع (ESC J n): n بالنقط، 8 نقط تقريباً = 1 مم
-        parts.push(new Uint8Array([0x1b, 0x4a, 120]));
-        // ثم تغذية لموضع القطع وقطع الورقة (GS V 66 0)
+        // الأندرويد (FEED_BEFORE_CUT = 0): بيتخطاها ويبعت القطع بس
+        if (FEED_BEFORE_CUT > 0) {
+          parts.push(new Uint8Array([0x1b, 0x4a, FEED_BEFORE_CUT]));
+        }
+        // قطع الورقة (GS V 66 0)
         parts.push(new Uint8Array([0x1d, 0x56, 0x42, 0x00]));
         return parts;
       }
-
       function errText(e) {
         let name = (e && e.name) || typeof e;
         let msg = '';
