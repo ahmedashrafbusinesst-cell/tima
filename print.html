@@ -274,6 +274,7 @@
     <script>
       const NAME_PREFIX = 'XP';
       const FIXED_CHANNEL = 1;
+      const COMPANY_NAME = 'شركة تيما للاستيراد والتصدير';
       const IS_ANDROID = /Android/i.test(navigator.userAgent);
       const CH_KEY = 'tima2_ch_' + (IS_ANDROID ? 'and' : 'oth');
       const CONTACTS = [
@@ -363,6 +364,56 @@
           'en-US',
         );
       }
+      // التاريخ بالعربي وبتوقيت مصر (مثال: ٨ أكتوبر ٢٠٢٦ - ٣:٣٠ م)
+      function fmtDate(v) {
+        if (v == null || v === '') return '';
+        const s = String(v).trim();
+        let d = null,
+          tz = 'Africa/Cairo',
+          hasTime = false;
+        // شكل يوم/شهر/سنة (الشكل المصري)
+        const m = s.match(
+          /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:[ ,T]+(\d{1,2}):(\d{2}))?/,
+        );
+        if (m) {
+          d = new Date(
+            Date.UTC(
+              +m[3],
+              +m[2] - 1,
+              +m[1],
+              m[4] ? +m[4] : 0,
+              m[5] ? +m[5] : 0,
+            ),
+          );
+          tz = 'UTC'; // الوقت مكتوب أصلاً بتوقيت مصر، فمن غير تحويل
+          hasTime = !!m[4];
+        } else {
+          const t = new Date(s);
+          if (!isNaN(t.getTime())) {
+            d = t;
+            hasTime = /\d:\d/.test(s);
+          }
+        }
+        if (!d) return s;
+        const o = {
+          timeZone: tz,
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        };
+        if (hasTime) {
+          o.hour = 'numeric';
+          o.minute = '2-digit';
+          o.hour12 = true;
+        }
+        try {
+          return new Intl.DateTimeFormat('ar-EG', o)
+            .format(d)
+            .replace(/\s+في\s+/, ' - ');
+        } catch (e) {
+          return s;
+        }
+      }
       function receiptKind(r) {
         if (!r) return 'sale';
         if (r.type === 'collection' || r.type === 'col') return 'collection';
@@ -403,10 +454,8 @@
       function summarySale(r) {
         const itemsHtml = (r.items || [])
           .map(
-            (it, i) =>
-              '<div class="row" style="font-size:13px"><span>' +
-              (i + 1) +
-              '. ' +
+            (it) =>
+              '<div class="row" style="font-size:13px"><span>• ' +
               (it.isBonus ? '[بونص] ' : '') +
               esc(String(it.name || '').replace(/^بونص\s*[—-]\s*/, '')) +
               (it.color ? ' (' + esc(it.color) + ')' : '') +
@@ -425,7 +474,7 @@
           esc(r.number) +
           '</b></div>' +
           '<div class="row"><span>التاريخ</span><b>' +
-          esc(r.date) +
+          esc(fmtDate(r.date)) +
           '</b></div>' +
           '<div class="row"><span>العميل</span><b>' +
           esc(r.customer) +
@@ -434,6 +483,7 @@
           esc(r.employee) +
           '</b></div>' +
           '<hr class="dash">' +
+          '<div class="row"><b>الأصناف المشتراة</b></div>' +
           itemsHtml +
           '<hr class="dash">' +
           '<div class="row"><span>الإجمالي</span><b>' +
@@ -448,7 +498,7 @@
           esc(r.number) +
           '</b></div>' +
           '<div class="row"><span>التاريخ</span><b>' +
-          esc(r.date) +
+          esc(fmtDate(r.date)) +
           '</b></div>' +
           '<div class="row"><span>العميل</span><b>' +
           esc(r.customer) +
@@ -501,7 +551,7 @@
           esc(r.rep || '') +
           '</b></div>' +
           '<div class="row"><span>التاريخ</span><b>' +
-          esc(r.date) +
+          esc(fmtDate(r.date)) +
           '</b></div>' +
           '<hr class="dash">' +
           (itemsHtml || '<div class="row"><span>لا توجد أصناف</span></div>') +
@@ -937,15 +987,15 @@
       function renderSale(r, logo) {
         const items = r.items || [];
         const state = makeCanvas(
-          1600 + items.length * 320 + (r.payments || []).length * 70,
+          1700 + items.length * 320 + (r.payments || []).length * 70,
         );
         const h = drawHelpers(state);
         h.drawLogo(logo);
-        h.center(r.company || '', 28, true);
+        h.center(COMPANY_NAME, 28, true);
         h.gap(6);
         h.bar('فاتورة مبيعات', 28);
         h.row('رقم الفاتورة:', '#' + r.number, 28, true);
-        h.row('التاريخ:', h.iso(r.date), 24, false);
+        h.row('التاريخ:', h.iso(fmtDate(r.date)), 24, false);
         h.gap(2);
         h.line('dashed');
         h.right('العميل: ' + h.iso(r.customer), 28, true);
@@ -955,11 +1005,12 @@
         h.right('المندوب: ' + h.iso(r.employee), 24, false);
         h.gap(2);
         h.line('dashed');
+        h.center('الأصناف المشتراة', 26, true);
+        h.gap(2);
         items.forEach((it, i) => {
           const name = String(it.name || '').replace(/^بونص\s*[—-]\s*/, '');
           h.right(
-            h.iso(i + 1 + '.') +
-              ' ' +
+            '• ' +
               (it.isBonus ? h.iso('[بونص]') + ' ' : '') +
               h.iso(name) +
               (it.color ? ' ' + h.iso('(' + it.color + ')') : ''),
@@ -1024,14 +1075,14 @@
       }
 
       function renderCollection(r, logo) {
-        const state = makeCanvas(1100);
+        const state = makeCanvas(1200);
         const h = drawHelpers(state);
         h.drawLogo(logo);
-        h.center(r.company || '', 28, true);
+        h.center(COMPANY_NAME, 28, true);
         h.gap(6);
         h.bar('فاتورة تحصيل', 28);
         h.row('رقم الفاتورة:', '#' + r.number, 28, true);
-        h.row('التاريخ:', h.iso(r.date), 24, false);
+        h.row('التاريخ:', h.iso(fmtDate(r.date)), 24, false);
         h.gap(2);
         h.line('dashed');
         h.right('العميل: ' + h.iso(r.customer), 28, true);
@@ -1080,15 +1131,15 @@
         const s = r.salesSummary || {};
         const methodKeys = Object.keys(methods).filter((k) => methods[k] > 0);
         const state = makeCanvas(
-          1400 + items.length * 90 + methodKeys.length * 50,
+          1500 + items.length * 90 + methodKeys.length * 50,
         );
         const h = drawHelpers(state);
         h.drawLogo(logo);
-        h.center(r.company || '', 28, true);
+        h.center(COMPANY_NAME, 28, true);
         h.gap(6);
         h.bar('جرد العربية', 28);
         h.row('المندوب:', h.iso(r.rep || ''), 26, true);
-        h.row('التاريخ:', h.iso(r.date), 24, false);
+        h.row('التاريخ:', h.iso(fmtDate(r.date)), 24, false);
         h.gap(2);
         h.line('dashed');
         h.center('الأصناف', 24, true);
@@ -1099,7 +1150,7 @@
           items.forEach((it, i) => {
             const title =
               (it.name || '') + (it.color ? ' (' + it.color + ')' : '');
-            h.right(h.iso(i + 1 + '. ' + title), 24, true);
+            h.right('• ' + h.iso(title), 24, true);
             const load =
               it.loaded != null
                 ? it.loaded
