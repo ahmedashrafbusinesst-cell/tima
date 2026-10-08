@@ -1001,6 +1001,56 @@
             state.y += s + 10;
           });
         }
+        // سطر صنف: كل جزء بيترسم في مكانه من اليمين للشمال (الاسم ← التركيز ← الحجم)
+        function itemLine(parts, s) {
+          font(s, false);
+          const hasAr = (t) => /[\u0600-\u06FF]/.test(t);
+          const x0 = W - M - 24;
+          const maxW = x0 - M;
+          const sepW = ctx.measureText(' - ').width;
+          const ws = parts.map((p) => ctx.measureText(p).width);
+          const lines = [[]];
+          let used = 0;
+          parts.forEach((p, i) => {
+            let cur = lines[lines.length - 1];
+            const add = ws[i] + (cur.length ? sepW : 0);
+            if (cur.length && used + add > maxW) {
+              lines.push([]);
+              cur = lines[lines.length - 1];
+              used = 0;
+            }
+            used += ws[i] + (cur.length ? sepW : 0);
+            cur.push(i);
+          });
+          lines.forEach((ln, li) => {
+            if (li === 0) {
+              ctx.beginPath();
+              ctx.arc(W - M - 7, state.y + s / 2 + 3, 7, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            let x = x0;
+            ln.forEach((i, k) => {
+              if (k) {
+                ctx.textAlign = 'center';
+                try {
+                  ctx.direction = 'ltr';
+                } catch (e) {}
+                ctx.fillText('-', x - sepW / 2, state.y);
+                x -= sepW;
+              }
+              ctx.textAlign = 'right';
+              try {
+                ctx.direction = hasAr(parts[i]) ? 'rtl' : 'ltr';
+              } catch (e) {}
+              ctx.fillText(parts[i], x, state.y);
+              x -= ws[i];
+            });
+            try {
+              ctx.direction = 'rtl';
+            } catch (e) {}
+            state.y += s + 10;
+          });
+        }
         function line(kind) {
           ctx.save();
           ctx.strokeStyle = '#000';
@@ -1050,6 +1100,7 @@
           center,
           right,
           bullet,
+          itemLine,
           row,
           gap,
           line,
@@ -1059,7 +1110,6 @@
           num,
         };
       }
-
       function renderSale(r, logo) {
         const items = r.items || [];
         const state = makeCanvas(
@@ -1084,11 +1134,7 @@
         h.center('الأصناف', 26, true);
         h.gap(2);
         items.forEach((it, i) => {
-          h.bullet(
-            (it.isBonus ? h.iso('[بونص]') + ' ' : '') +
-              itemParts(it).map(h.iso).join(' - '),
-            26,
-          );
+          h.itemLine((it.isBonus ? ['[بونص]'] : []).concat(itemParts(it)), 26);
           const qtyTxt =
             num(it.qty) +
             ' ' +
@@ -1145,7 +1191,6 @@
         h.gap(TAIL_GAP); // فراغ صغير تحت الكلمة
         return finishCanvas(state);
       }
-
       function renderCollection(r, logo) {
         const state = makeCanvas(1200);
         const h = drawHelpers(state);
@@ -1220,7 +1265,7 @@
           h.center('لا توجد أصناف', 22, false);
         } else {
           items.forEach((it, i) => {
-            h.bullet(itemParts(it).map(h.iso).join(' - '), 25);
+            h.itemLine(itemParts(it), 25);
             const load =
               it.loaded != null
                 ? it.loaded
@@ -1256,7 +1301,6 @@
         h.gap(TAIL_GAP); // فراغ صغير تحت الكلمة
         return finishCanvas(state);
       }
-
       // بيرجّع مصفوفة شرايح (كل شريحة Uint8Array) بدل بايتات مدمجة
       // rowsOverride: عدد أسطر الشريحة (RawBT بيستخدم شرايح أكبر)
       // skipPause: من غير علامة الاستراحة (مش محتاجينها مع RawBT)
