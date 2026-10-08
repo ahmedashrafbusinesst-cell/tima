@@ -414,6 +414,31 @@
           return s;
         }
       }
+      // ترتيب أجزاء اسم الصنف: الاسم ← التركيز ← الحجم ← اللون
+      function itemParts(it) {
+        const raw = String(it.name || '').replace(/^بونص\s*[—-]\s*/, '');
+        const ps = raw
+          .split(/\s+[-–—]\s+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const nm = [],
+          cc = [],
+          sz = [];
+        ps.forEach((p) => {
+          if (/تركيز|%/.test(p)) cc.push(p);
+          else if (
+            /^[\d.,٠-٩]+\s*(لتر|مل|ml|l|ltr|جم|جرام|كجم|كيلو|kg|g)\s*$/i.test(
+              p,
+            ) ||
+            (/\d/.test(p) && /(لتر|مل)\s*$/.test(p))
+          )
+            sz.push(p);
+          else nm.push(p);
+        });
+        const out = nm.concat(cc, sz);
+        if (it.color) out.push(String(it.color));
+        return out;
+      }
       function receiptKind(r) {
         if (!r) return 'sale';
         if (r.type === 'collection' || r.type === 'col') return 'collection';
@@ -457,8 +482,11 @@
             (it) =>
               '<div class="row" style="font-size:13px"><span>• ' +
               (it.isBonus ? '[بونص] ' : '') +
-              esc(String(it.name || '').replace(/^بونص\s*[—-]\s*/, '')) +
-              (it.color ? ' (' + esc(it.color) + ')' : '') +
+              '<bdi><b>' +
+              itemParts(it)
+                .map((p) => '<bdi>' + esc(p) + '</bdi>')
+                .join(' - ') +
+              '</b></bdi>' +
               '</span><b>' +
               esc(it.qty) +
               ' ' +
@@ -864,7 +892,7 @@
       }
       function finishCanvas(state) {
         const { W, cv, ctx, y } = state;
-        const H = Math.min(Math.ceil(y + 20), cv.height);
+        const H = Math.min(Math.ceil(y + 4), cv.height);
         const out = document.createElement('canvas');
         out.width = W;
         out.height = H;
@@ -926,6 +954,25 @@
         function gap(n) {
           state.y += n;
         }
+        // نقطة (بولت) كبيرة + نص تقيل
+        function bullet(t, s) {
+          font(s, true);
+          ctx.textAlign = 'right';
+          ctx.lineJoin = 'round';
+          const tx = W - M - 28;
+          wrap(t, W - 2 * M - 28).forEach((l, i) => {
+            if (i === 0) {
+              ctx.beginPath();
+              ctx.arc(W - M - 9, state.y + s / 2 + 3, 9, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.fillText(l, tx, state.y);
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = '#000';
+            ctx.strokeText(l, tx, state.y);
+            state.y += s + 10;
+          });
+        }
         function line(kind) {
           ctx.save();
           ctx.strokeStyle = '#000';
@@ -974,6 +1021,7 @@
           iso,
           center,
           right,
+          bullet,
           row,
           gap,
           line,
@@ -1008,14 +1056,10 @@
         h.center('الأصناف المشتراة', 26, true);
         h.gap(2);
         items.forEach((it, i) => {
-          const name = String(it.name || '').replace(/^بونص\s*[—-]\s*/, '');
-          h.right(
-            '• ' +
-              (it.isBonus ? h.iso('[بونص]') + ' ' : '') +
-              h.iso(name) +
-              (it.color ? ' ' + h.iso('(' + it.color + ')') : ''),
-            25,
-            true,
+          h.bullet(
+            (it.isBonus ? h.iso('[بونص]') + ' ' : '') +
+              itemParts(it).map(h.iso).join(' - '),
+            26,
           );
           const qtyTxt =
             num(it.qty) +
@@ -1070,7 +1114,7 @@
         h.gap(6);
         h.line('dashed');
         h.center('شكراً لتعاملكم معنا', 26, true);
-        state.y += 40;
+        state.y -= 6;
         return finishCanvas(state);
       }
 
@@ -1121,7 +1165,7 @@
         h.gap(6);
         h.line('dashed');
         h.center('شكراً لتعاملكم معنا', 26, true);
-        state.y += 40;
+        state.y -= 6;
         return finishCanvas(state);
       }
 
@@ -1148,9 +1192,7 @@
           h.center('لا توجد أصناف', 22, false);
         } else {
           items.forEach((it, i) => {
-            const title =
-              (it.name || '') + (it.color ? ' (' + it.color + ')' : '');
-            h.right('• ' + h.iso(title), 24, true);
+            h.bullet(itemParts(it).map(h.iso).join(' - '), 25);
             const load =
               it.loaded != null
                 ? it.loaded
@@ -1183,7 +1225,7 @@
         h.gap(6);
         h.line('dashed');
         h.center('تقرير جرد — يتحدث مع كل بيع', 20, false);
-        state.y += 40;
+        state.y -= 6;
         return finishCanvas(state);
       }
 
@@ -1230,7 +1272,8 @@
           }
           parts.push(buf);
         }
-        parts.push(new Uint8Array([0x1b, 0x64, 0x04])); // feed
+        // تغذية لموضع القطع ثم قطع الورقة (GS V 66 0)
+        parts.push(new Uint8Array([0x1d, 0x56, 0x42, 0x00]));
         return parts;
       }
 
