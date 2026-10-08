@@ -958,11 +958,11 @@
         function bullet(t, s) {
           font(s, false);
           ctx.textAlign = 'right';
-          const tx = W - M - 28;
-          wrap(t, W - 2 * M - 28).forEach((l, i) => {
+          const tx = W - M - 24;
+          wrap(t, W - 2 * M - 24).forEach((l, i) => {
             if (i === 0) {
               ctx.beginPath();
-              ctx.arc(W - M - 9, state.y + s / 2 + 3, 9, 0, Math.PI * 2);
+              ctx.arc(W - M - 7, state.y + s / 2 + 3, 7, 0, Math.PI * 2);
               ctx.fill();
             }
             ctx.fillText(l, tx, state.y);
@@ -1049,7 +1049,7 @@
         h.right('المندوب: ' + h.iso(r.employee), 24, false);
         h.gap(2);
         h.line('dashed');
-        h.center('الأصناف المشتراة', 26, true);
+        h.center('الأصناف', 26, true);
         h.gap(2);
         items.forEach((it, i) => {
           h.bullet(
