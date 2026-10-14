@@ -188,6 +188,14 @@
       >
     </div>
     <button class="big" id="goBtn" onclick="run()">🖨 اتصال وطباعة</button>
+    <button
+      class="sec gray"
+      id="rawbtBtn"
+      style="display: none"
+      onclick="printRawBT()"
+    >
+      بديل: اطبع عبر راو بي تي
+    </button>
     <button class="sec" onclick="closeMe()">↩ رجوع للنظام</button>
     <div class="card" id="statusCard" style="margin-top: 12px">
       <div id="status" style="margin-top: 0">
@@ -287,10 +295,10 @@
       ];
       // ---------- إعدادات الإرسال (بتتغيّر من لوحة التجارب وبتتحفظ) ----------
       // أندرويد: حزم صغيرة + تأخير أكبر + شرائح صورة أصغر عشان متتلخبطش
-      const PREF = 'tima4_' + (IS_ANDROID ? 'and' : 'oth') + '_';
+      const PREF = 'tima5_';
       const DEF = IS_ANDROID
-        ? { mode: 'noresp', ck: 20, dl: 35, rows: 24, sp: 80 }
-        : { mode: 'auto', ck: 100, dl: 10, rows: 128, sp: 0 };
+        ? { mode: 'resp', ck: 128, dl: 0, rows: 48, sp: 0 }
+        : { mode: 'resp', ck: 128, dl: 0, rows: 48, sp: 0 };
       const FONT = 'Tahoma, "Geeza Pro", Arial, sans-serif';
       const SERVICES = [
         '000018f0-0000-1000-8000-00805f9b34fb',
@@ -842,7 +850,8 @@
         if (C.mode === 'noresp' && canNoResp) useNoResp = true;
         else if (C.mode === 'resp' && canResp) useNoResp = false;
         else useNoResp = !canResp && canNoResp;
-        let ck = C.ck;
+        let ck = useNoResp ? Math.min(C.ck, 20) : C.ck;
+        let gap = useNoResp ? Math.max(C.dl, 30) : C.dl;
         let pos = 0;
         while (pos < bytes.length) {
           const part = bytes.slice(pos, pos + ck);
@@ -855,13 +864,15 @@
             const pc = Math.round(((base + pos) * 100) / total);
             prog(pc);
             st('جاري الطباعة... ' + pc + '%');
-            if (C.dl) await sleep(C.dl);
+            if (gap) await sleep(gap);
           } catch (e) {
+            if (!device.gatt.connected) throw e;
             if (ck > 20) {
-              ck = 20;
+              ck = ck > 100 ? 100 : 20;
               continue;
             }
             if (useNoResp && canResp) {
+              gap = C.dl;
               useNoResp = false;
               continue;
             }
@@ -1309,14 +1320,15 @@
           H = img.H,
           d = img.data,
           bpr = W / 8;
-        const parts = [new Uint8Array([0x1b, 0x40])]; // تهيئة ESC @
-
-        // استراحة بعد التهيئة (للبلوتوث المباشر على أندرويد بس)
+        const ROWS = rowsOverride || cfg().rows;
+        // أصفار تكمّل أي صورة مقطوعة من الطباعة اللي فاتت، وبعدها تهيئة
+        const parts = [
+          new Uint8Array(bpr * ROWS + 64),
+          new Uint8Array([0x1b, 0x40]),
+        ];
         if (IS_ANDROID && !skipPause) {
           parts.push(null);
         }
-
-        const ROWS = rowsOverride || cfg().rows;
         for (let top = 0; top < H; top += ROWS) {
           const h = Math.min(ROWS, H - top);
           const buf = new Uint8Array(8 + bpr * h);
@@ -1397,7 +1409,7 @@
           st('جاري تجهيز الإيصال...');
           const logo = await logoPromise;
           const img = render(R, logo);
-          const b64 = toBase64(toEscPos(img, 128, true));
+          const b64 = toBase64(toEscPos(img, 48, true));
           st('جاري فتح راو بي تي...');
           location.href =
             'intent:base64,' +
@@ -1416,10 +1428,32 @@
 
       // الزرار الكبير: أندرويد → RawBT ، باقي الأجهزة → بلوتوث مباشر (Bluefy)
       function run() {
+        if (navigator.bluetooth) return runBluetooth();
         if (IS_ANDROID) return printRawBT();
         return runBluetooth();
       }
-
+      let RESET = [];
+      async function writeRetry(p, base, total) {
+        for (let t = 0; ; t++) {
+          try {
+            await write(p, base, total);
+            return;
+          } catch (e) {
+            if (t >= 3) throw e;
+            prog(null);
+            st('الاتصال اتقطع، جاري إعادة الاتصال (' + (t + 1) + '/3)...');
+            await sleep(800);
+            chars = [];
+            try {
+              await openGatt();
+            } catch (e2) {
+              continue;
+            }
+            onCh();
+            for (const r of RESET) await write(r);
+          }
+        }
+      }
       async function runBluetooth() {
         if (!R) return;
         const btn = $('goBtn');
@@ -1439,6 +1473,7 @@
           const logo = await logoPromise;
           const img = render(R, logo);
           const parts = toEscPos(img);
+          RESET = parts.slice(0, 2);
           // نحسب الطول من الأجزاء الحقيقية بس (نتجاهل null)
           const totalLen = parts.reduce((s, a) => s + (a ? a.length : 0), 0);
           let done = 0;
@@ -1448,7 +1483,7 @@
               await sleep(IS_ANDROID ? 120 : 30);
               continue;
             }
-            await write(p, done, totalLen);
+            await writeRetry(p, done, totalLen);
             done += p.length;
             if (C.sp) await sleep(C.sp);
           }
@@ -1500,6 +1535,10 @@
         loadCfg();
         showPreview();
         if (IS_ANDROID) {
+          if (navigator.bluetooth) {
+            $('rawbtBtn').style.display = '';
+            return;
+          }
           $('goBtn').textContent = '🖨 اطبع عبر راو بي تي';
           st('جاهز. اضغط "اطبع عبر راو بي تي" فوق.');
         }
