@@ -291,9 +291,9 @@
       const FIXED_CHANNEL = 1;
       const COMPANY_NAME = 'شركة تيما للاستيراد والتصدير';
       const IS_ANDROID = /Android/i.test(navigator.userAgent);
-      const FEED_BEFORE_CUT = IS_ANDROID ? 0 : 120; // تغذية قبل القطع (الأندرويد: بدون)
+      const FEED_BEFORE_CUT = 120;
       const MIN_PAPER_H = IS_ANDROID ? 0 : 700; // حد أدنى لطول الورقة
-      const TAIL_GAP = IS_ANDROID ? -6 : 30; // الفراغ تحت "شكراً لتعاملكم معنا"
+      const TAIL_GAP = 30;
       const CH_KEY = 'tima2_ch_' + (IS_ANDROID ? 'and' : 'oth');
       const CONTACTS = [
         ['المبيعات:', '01111174321'],
