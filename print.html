@@ -294,6 +294,7 @@
       const FEED_BEFORE_CUT = 120;
       const MIN_PAPER_H = IS_ANDROID ? 0 : 700; // حد أدنى لطول الورقة
       const TAIL_GAP = 30;
+      const TAIL_PAD = 120; // صفوف بيضاء في آخر الصورة
       const CH_KEY = 'tima2_ch_' + (IS_ANDROID ? 'and' : 'oth');
       const CONTACTS = [
         ['المبيعات:', '01111174321'],
@@ -942,7 +943,10 @@
       function finishCanvas(state) {
         const { W, cv, ctx, y } = state;
         const MIN_H = MIN_PAPER_H;
-        const H = Math.min(Math.max(Math.ceil(y + 4), MIN_H), cv.height);
+        const H = Math.min(
+          Math.max(Math.ceil(y + 4) + TAIL_PAD, MIN_H),
+          cv.height,
+        );
         const out = document.createElement('canvas');
         out.width = W;
         out.height = H;
@@ -1376,6 +1380,7 @@
         }
         // قطع الورقة (GS V 66 0)
         parts.push(new Uint8Array([0x1d, 0x56, 0x42, 0x00]));
+        if (skipPause) parts.push(new Uint8Array(4096));
         return parts;
       }
       function errText(e) {
