@@ -1414,7 +1414,7 @@
 
       async function printRawBT() {
         if (!R) return;
-        const btn = $('goBtn');
+        const btn = $('rawbtBtn');
         btn.disabled = true;
         try {
           prog(null);
@@ -1438,10 +1438,15 @@
         }
       }
 
-      // الزرار الكبير: أندرويد → RawBT ، باقي الأجهزة → بلوتوث مباشر (Bluefy)
+      // الزرار الكبير مخصص للبلوتوث المباشر؛ RawBT له زر مستقل على أندرويد.
       function run() {
-        if (navigator.bluetooth) return runBluetooth();
-        if (IS_ANDROID) return printRawBT();
+        if (!navigator.bluetooth) {
+          st(
+            'المتصفح لا يدعم الاتصال المباشر بالبلوتوث. استخدم زر الطباعة عبر RawBT.',
+            'err',
+          );
+          return;
+        }
         return runBluetooth();
       }
 
@@ -1595,12 +1600,10 @@
         loadCfg();
         showPreview();
         if (IS_ANDROID) {
-          if (navigator.bluetooth) {
-            $('rawbtBtn').style.display = '';
-            return;
+          $('rawbtBtn').style.display = '';
+          if (!navigator.bluetooth) {
+            st('جاهز. اختر الاتصال المباشر أو الطباعة عبر RawBT.');
           }
-          $('goBtn').textContent = '🖨 اطبع عبر راو بي تي';
-          st('جاهز. اضغط "اطبع عبر راو بي تي" فوق.');
         }
       })();
     </script>
