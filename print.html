@@ -188,27 +188,12 @@
       >
     </div>
     <button class="big" id="goBtn" onclick="run()">🖨 اتصال وطباعة</button>
-    <button
-      class="sec gray"
-      id="rawbtBtn"
-      style="display: none"
-      onclick="printRawBT()"
-    >
-      بديل: اطبع عبر راو بي تي
-    </button>
     <button class="sec" onclick="closeMe()">↩ رجوع للنظام</button>
     <div class="card" id="statusCard" style="margin-top: 12px">
       <div id="status" style="margin-top: 0">
         جاهز. اضغط "اتصال وطباعة" فوق.
       </div>
       <div id="pbar"><div id="pfill"></div></div>
-      <div id="retryBox" style="display: none">
-        <button class="sec" id="retryResume">▶ كمّل من نقطة التوقف</button>
-        <button class="sec" id="retryFresh">
-          🧹 طباعة جديدة (تنظيف ثم من الأول)
-        </button>
-        <button class="sec gray" id="retryCancel">✖ إلغاء</button>
-      </div>
     </div>
     <details>
       <summary>إعدادات متقدمة</summary>
@@ -291,10 +276,9 @@
       const FIXED_CHANNEL = 1;
       const COMPANY_NAME = 'شركة تيما للاستيراد والتصدير';
       const IS_ANDROID = /Android/i.test(navigator.userAgent);
-      const FEED_BEFORE_CUT = 60;
+      const FEED_BEFORE_CUT = IS_ANDROID ? 0 : 120; // تغذية قبل القطع (الأندرويد: بدون)
       const MIN_PAPER_H = IS_ANDROID ? 0 : 700; // حد أدنى لطول الورقة
-      const TAIL_GAP = 10;
-      const TAIL_PAD = 50; // صفوف بيضاء في آخر الصورة
+      const TAIL_GAP = IS_ANDROID ? -6 : 30; // الفراغ تحت "شكراً لتعاملكم معنا"
       const CH_KEY = 'tima2_ch_' + (IS_ANDROID ? 'and' : 'oth');
       const CONTACTS = [
         ['المبيعات:', '01111174321'],
@@ -303,10 +287,10 @@
       ];
       // ---------- إعدادات الإرسال (بتتغيّر من لوحة التجارب وبتتحفظ) ----------
       // أندرويد: حزم صغيرة + تأخير أكبر + شرائح صورة أصغر عشان متتلخبطش
-      const PREF = 'tima5_';
+      const PREF = 'tima4_' + (IS_ANDROID ? 'and' : 'oth') + '_';
       const DEF = IS_ANDROID
-        ? { mode: 'resp', ck: 128, dl: 0, rows: 48, sp: 0 }
-        : { mode: 'resp', ck: 128, dl: 0, rows: 48, sp: 0 };
+        ? { mode: 'noresp', ck: 20, dl: 35, rows: 24, sp: 80 }
+        : { mode: 'auto', ck: 100, dl: 10, rows: 128, sp: 0 };
       const FONT = 'Tahoma, "Geeza Pro", Arial, sans-serif';
       const SERVICES = [
         '000018f0-0000-1000-8000-00805f9b34fb',
@@ -858,8 +842,7 @@
         if (C.mode === 'noresp' && canNoResp) useNoResp = true;
         else if (C.mode === 'resp' && canResp) useNoResp = false;
         else useNoResp = !canResp && canNoResp;
-        let ck = useNoResp ? Math.min(C.ck, 20) : C.ck;
-        let gap = useNoResp ? Math.max(C.dl, 30) : C.dl;
+        let ck = C.ck;
         let pos = 0;
         while (pos < bytes.length) {
           const part = bytes.slice(pos, pos + ck);
@@ -872,15 +855,13 @@
             const pc = Math.round(((base + pos) * 100) / total);
             prog(pc);
             st('جاري الطباعة... ' + pc + '%');
-            if (gap) await sleep(gap);
+            if (C.dl) await sleep(C.dl);
           } catch (e) {
-            if (!device.gatt.connected) throw e;
             if (ck > 20) {
-              ck = ck > 100 ? 100 : 20;
+              ck = 20;
               continue;
             }
             if (useNoResp && canResp) {
-              gap = C.dl;
               useNoResp = false;
               continue;
             }
@@ -943,10 +924,7 @@
       function finishCanvas(state) {
         const { W, cv, ctx, y } = state;
         const MIN_H = MIN_PAPER_H;
-        const H = Math.min(
-          Math.max(Math.ceil(y + 4) + TAIL_PAD, MIN_H),
-          cv.height,
-        );
+        const H = Math.min(Math.max(Math.ceil(y + 4), MIN_H), cv.height);
         const out = document.createElement('canvas');
         out.width = W;
         out.height = H;
@@ -1331,15 +1309,14 @@
           H = img.H,
           d = img.data,
           bpr = W / 8;
-        const ROWS = rowsOverride || cfg().rows;
-        // أصفار تكمّل أي صورة مقطوعة من الطباعة اللي فاتت، وبعدها تهيئة
-        const parts = [
-          new Uint8Array(bpr * ROWS + 64),
-          new Uint8Array([0x1b, 0x40]),
-        ];
+        const parts = [new Uint8Array([0x1b, 0x40])]; // تهيئة ESC @
+
+        // استراحة بعد التهيئة (للبلوتوث المباشر على أندرويد بس)
         if (IS_ANDROID && !skipPause) {
           parts.push(null);
         }
+
+        const ROWS = rowsOverride || cfg().rows;
         for (let top = 0; top < H; top += ROWS) {
           const h = Math.min(ROWS, H - top);
           const buf = new Uint8Array(8 + bpr * h);
@@ -1380,7 +1357,6 @@
         }
         // قطع الورقة (GS V 66 0)
         parts.push(new Uint8Array([0x1d, 0x56, 0x42, 0x00]));
-        if (skipPause) parts.push(new Uint8Array(4096));
         return parts;
       }
       function errText(e) {
@@ -1414,14 +1390,14 @@
 
       async function printRawBT() {
         if (!R) return;
-        const btn = $('rawbtBtn');
+        const btn = $('goBtn');
         btn.disabled = true;
         try {
           prog(null);
           st('جاري تجهيز الإيصال...');
           const logo = await logoPromise;
           const img = render(R, logo);
-          const b64 = toBase64(toEscPos(img, 48, true));
+          const b64 = toBase64(toEscPos(img, 128, true));
           st('جاري فتح راو بي تي...');
           location.href =
             'intent:base64,' +
@@ -1438,75 +1414,12 @@
         }
       }
 
-      // الزرار الكبير مخصص للبلوتوث المباشر؛ RawBT له زر مستقل على أندرويد.
+      // الزرار الكبير: أندرويد → RawBT ، باقي الأجهزة → بلوتوث مباشر (Bluefy)
       function run() {
-        if (!navigator.bluetooth) {
-          st(
-            'المتصفح لا يدعم الاتصال المباشر بالبلوتوث. استخدم زر الطباعة عبر RawBT.',
-            'err',
-          );
-          return;
-        }
+        if (IS_ANDROID) return printRawBT();
         return runBluetooth();
       }
 
-      let RESET = [];
-      class RestartError extends Error {}
-      function askChoice(msg) {
-        return new Promise((resolve) => {
-          prog(null);
-          st(msg, 'err');
-          const box = $('retryBox');
-          box.style.display = '';
-          const done = (v) => {
-            box.style.display = 'none';
-            resolve(v);
-          };
-          $('retryResume').onclick = () => done('resume');
-          $('retryFresh').onclick = () => done('fresh');
-          $('retryCancel').onclick = () => done('cancel');
-        });
-      }
-      async function flushPrinter(W) {
-        st('تنظيف الطابعة...');
-        const z = new Uint8Array((W / 8) * 255 + 64);
-        await write(z, 0, z.length);
-        const ini = new Uint8Array([0x1b, 0x40]);
-        await write(ini, 0, ini.length);
-        await sleep(300);
-      }
-      async function writeRetry(p, base, total) {
-        for (;;) {
-          try {
-            await write(p, base, total);
-            return;
-          } catch (e) {
-            let err = e;
-            let msg =
-              'الاتصال انقطع. شغّل الطابعة وقرّبها ثم اختر: كمّل أو طباعة جديدة.';
-            for (;;) {
-              const ch = await askChoice(msg);
-              if (ch === 'cancel') throw err;
-              try {
-                chars = [];
-                await openGatt();
-                onCh();
-                if (ch === 'fresh') {
-                  ls('tima_dirty', '1');
-                  throw new RestartError('restart');
-                }
-                for (const r of RESET) await write(r);
-                break;
-              } catch (e2) {
-                if (e2 instanceof RestartError) throw e2;
-                err = e2;
-                msg =
-                  'تعذر الاتصال بالطابعة. تأكد أنها تعمل وقريبة ثم اختر من جديد.';
-              }
-            }
-          }
-        }
-      }
       async function runBluetooth() {
         if (!R) return;
         const btn = $('goBtn');
@@ -1521,38 +1434,25 @@
           if (!ready()) await connectFlow();
           onCh();
           const C = cfg();
+          prog(0);
+          st('جاري تجهيز الإيصال...');
           const logo = await logoPromise;
           const img = render(R, logo);
-          let finished = false;
-          while (!finished) {
-            const parts = toEscPos(img);
-            RESET = parts.slice(0, 2);
-            if (ls('tima_dirty') === '1') {
-              await flushPrinter(img.W);
-              ls('tima_dirty', '0');
+          const parts = toEscPos(img);
+          // نحسب الطول من الأجزاء الحقيقية بس (نتجاهل null)
+          const totalLen = parts.reduce((s, a) => s + (a ? a.length : 0), 0);
+          let done = 0;
+          for (const p of parts) {
+            if (p === null) {
+              // استراحة بعد التهيئة على أندرويد
+              await sleep(IS_ANDROID ? 120 : 30);
+              continue;
             }
-            prog(0);
-            st('جاري تجهيز الإيصال...');
-            const totalLen = parts.reduce((s, a) => s + (a ? a.length : 0), 0);
-            let done = 0;
-            try {
-              ls('tima_dirty', '1');
-              for (const p of parts) {
-                if (p === null) {
-                  await sleep(IS_ANDROID ? 120 : 30);
-                  continue;
-                }
-                await writeRetry(p, done, totalLen);
-                done += p.length;
-                if (C.sp) await sleep(C.sp);
-              }
-              finished = true;
-            } catch (e) {
-              if (!(e instanceof RestartError)) throw e;
-            }
+            await write(p, done, totalLen);
+            done += p.length;
+            if (C.sp) await sleep(C.sp);
           }
           ls(CH_KEY, String(idx));
-          ls('tima_dirty', '0');
           prog(100, true);
           st('✔ تمت الطباعة', 'ok');
           btn.textContent = '🖨 اطبع تاني';
@@ -1600,10 +1500,8 @@
         loadCfg();
         showPreview();
         if (IS_ANDROID) {
-          $('rawbtBtn').style.display = '';
-          if (!navigator.bluetooth) {
-            st('جاهز. اختر الاتصال المباشر أو الطباعة عبر RawBT.');
-          }
+          $('goBtn').textContent = '🖨 اطبع عبر راو بي تي';
+          st('جاهز. اضغط "اطبع عبر راو بي تي" فوق.');
         }
       })();
     </script>
